@@ -15,11 +15,9 @@ const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
 
 class Pyramid{
-public:
-
 	vector<Mat> pyramid;  // 默认是private
 
-
+public:
 	Pyramid(){}    
 	Pyramid(Mat & Image){     // 构造函数，对Image构造一个Image Pyramid
 		int cols = Image.cols ;
@@ -42,12 +40,17 @@ public:
 			pyrDown(srcImage, pyramid[i], Size(srcImage.cols >> 1, srcImage.rows >> 1));
 		}
 	}
+
+	vector<Mat> getPyramid(){
+		return pyramid;
+	}
 };
 
 class FastBurstImagesDenoising{
 public:
 	vector<Mat> oriImageSet;      // 存储原来的每帧图片
 	vector<Pyramid*> imagePyramidSet;  // 图片金字塔（高斯金字塔）
+	Pyramid* refPyramid;   // 参考图片的金字塔
 
 	void readBurstImages(const string fileDir){
 		Mat img;
@@ -57,6 +60,17 @@ public:
 			img = imread(fileDir + string(index) + imageFormat);
 			oriImageSet.push_back(img);
 		}
+	}
+
+	void calPyramidSet(){
+		int frameNum = oriImageSet.size();
+		imagePyramidSet.resize(frameNum);
+		for(int i = 0; i < frameNum; i++){
+			printf("Frame %d: ", i);
+			imagePyramidSet[i] = new Pyramid(oriImageSet[i]);
+		}
+		refPyramid = imagePyramidSet[REF];
+		showImages(refPyramid->getPyramid());
 	}
 
 	void showImages(vector<Mat> Images){
@@ -78,8 +92,7 @@ FastBurstImagesDenoising FBID;
 int main(){
 	FBID.readBurstImages(fileDir);
 	//FBID.showImages(FBID.oriImageSet); 
-	Pyramid* pyramids = new Pyramid(FBID.oriImageSet[REF]);
-	FBID.showImages(pyramids->pyramid);
+	FBID.calPyramidSet();
 
 	system("pause");
 
