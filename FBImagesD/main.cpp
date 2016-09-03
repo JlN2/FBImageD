@@ -15,9 +15,49 @@ const string fileDir  = "SrcData\\Data\\Bookshelf_2\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
+const int FEATURE_LAYER = 0;   //------------------应该从哪一层开始算特征点？
+
+class PyramidLayer{
+	Mat image; // 这一层的图片
+	vector<KeyPoint> keypoints;  // 该图片的特征点
+	Mat descriptors; // 该图片的特征向量  
+
+public:
+	PyramidLayer(){}
+	PyramidLayer(Mat & newImage){
+		image = newImage;
+	}
+
+	Mat getImage(){
+		return image;
+	}
+
+	// 检测这一层的图片的特征点(使用SURF算子）
+	void calKeyPoints(){
+		int hessianThreshold = 400; // Hessian 矩阵行列式响应值的阈值, h要大于该值
+		SurfFeatureDetector surfDetector(hessianThreshold); // 定义一个SurfFeatureDetector（SURF, SurfDescriptorExtractor） 特征检测类对象
+		surfDetector.detect(image, keypoints);
+		cout << "Keypoints Num: " << keypoints.size() << endl;
+		/* Mat imgKeypoints;   // 带特征点的图,以下几步显示该图
+		drawKeypoints(image, keypoints, imgKeypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+		imshow("surfImage", imgKeypoints);
+		waitKey(0); */
+	}
+
+	// 使用BRIEF算子提取特征（计算特征向量）即, descriptor; BRIEF: 节省空间，快
+	void calImageDescriptors(){
+		BriefDescriptorExtractor briefExtractor;
+		briefExtractor.compute(image, keypoints, descriptors);
+		cout << "Descriptors Size: " << descriptors.size() << endl;
+	}
+
+	Mat getImageDescriptors(){
+		return descriptors;
+	}
+};
 
 class Pyramid{
-	vector<Mat> pyramid;  // 默认是private
+	vector<PyramidLayer> pyramid;  // 默认是private
 
 public:
 	Pyramid(){}    
@@ -37,14 +77,25 @@ public:
 		pyramid.resize(layerNum);
 		pyramid[layerNum - 1] = Image;
 		for(int i = layerNum - 2; i >= 0; i--){
-			Mat srcImage = pyramid[i+1];
+			Mat srcImage = pyramid[i+1].getImage();
+			Mat dstImage;
 			// 用pyrDown进行下采样操作，执行了高斯金字塔建造的向下采样的步骤; 改变图像尺寸还可以用resize()
-			pyrDown(srcImage, pyramid[i], Size(srcImage.cols >> 1, srcImage.rows >> 1));
+			pyrDown(srcImage, dstImage, Size(srcImage.cols >> 1, srcImage.rows >> 1));
+			PyramidLayer newLayer(dstImage);
+			pyramid[i] = newLayer;
 		}
 	}
 
-	vector<Mat> getPyramid(){
-		return pyramid;
+	vector<Mat> getImagePyramid(){
+		vector<Mat> imagePyramid;
+		for(int i = 0; i < pyramid.size(); i++){
+			imagePyramid.push_back(pyramid[i].getImage());
+		}
+		return imagePyramid;
+	}
+
+	PyramidLayer* getPyramidLayer(int layer){
+		return &(pyramid[layer]);
 	}
 };
 
@@ -72,7 +123,10 @@ public:
 			imagePyramidSet[i] = new Pyramid(oriImageSet[i]);
 		}
 		refPyramid = imagePyramidSet[REF];
-		//showImages(refPyramid->getPyramid());
+		//showImages(refPyramid->getImagePyramid());
+		PyramidLayer* pLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);
+		pLayer->calKeyPoints();
+		pLayer->calImageDescriptors();
 	}
 
 	void showImages(vector<Mat> Images){
@@ -83,7 +137,7 @@ public:
 		for(int i = 0; i < imageNum; i++){
 			sprintf_s(index, "%d", i);
 			imshow(index, Images[i]);
-			waitKey(1000);  // 等待1000 ms后窗口自动关闭  
+			waitKey(0);  // waitKey(1000),等待1000 ms后窗口自动关闭; waitKey(0)等待按键
 		}
 	}
 
