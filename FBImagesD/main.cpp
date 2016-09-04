@@ -46,13 +46,19 @@ public:
 
 	// 使用BRIEF算子提取特征（计算特征向量）即, descriptor; BRIEF: 节省空间，快
 	void calImageDescriptors(){
+		calKeyPoints();
 		BriefDescriptorExtractor briefExtractor;
 		briefExtractor.compute(image, keypoints, descriptors);
 		cout << "Descriptors Size: " << descriptors.size() << endl;
 	}
 
 	Mat getImageDescriptors(){
+		calImageDescriptors();
 		return descriptors;
+	}
+
+	vector<KeyPoints> & getKeypoints(){
+		return keypoints;
 	}
 };
 
@@ -115,6 +121,7 @@ public:
 		}
 	}
 
+	// 计算图像金字塔
 	void calPyramidSet(){
 		int frameNum = oriImageSet.size();
 		imagePyramidSet.resize(frameNum);
@@ -124,10 +131,29 @@ public:
 		}
 		refPyramid = imagePyramidSet[REF];
 		//showImages(refPyramid->getImagePyramid());
-		PyramidLayer* pLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);
-		pLayer->calKeyPoints();
-		pLayer->calImageDescriptors();
 	}
+
+	// 第一步： 计算每帧图片的homography flow 金字塔
+	void calHomographyFlowPyramidSet(){
+
+		// 计算refImage的特征层的特征向量和特征点
+		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);
+		Mat refDescriptor = refpLayer->getImageDescriptors();  
+		vector<KeyPoint> & refKpoint = refpLayer->getKeypoints();
+
+		// 1. 计算每一帧和参考帧的Homography（3*3矩阵） 金字塔
+		for(int frame = 0; frame < FRAME_NUM; frame++){
+			// 计算当前帧的特征向量和特征点
+			curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
+
+
+		}
+		
+		
+		
+	}
+
+
 
 	void showImages(vector<Mat> Images){
 		int imageNum = Images.size();

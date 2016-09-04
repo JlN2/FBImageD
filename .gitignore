@@ -1,3 +1,5 @@
 *.opensdf
 *.ipch
 *.jpg
+/Debug/
+/FBImagesD/Debug/
