@@ -146,6 +146,9 @@ public:
 		
 		// 1. 计算每一帧和参考帧的Homography（3*3矩阵） 金字塔
 		for(int frame = 0; frame < FRAME_NUM; frame++){
+
+			if(frame == REF) continue;
+
 			// 计算当前帧的特征向量和特征点
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
@@ -154,8 +157,34 @@ public:
 
 			// 进行特征向量匹配
 			vector<DMatch> matches; // 匹配结果
-			matcher.match(curDescriptor, refDescriptor, matches); // queryDescriptor, trainDescriptor
+			matcher->match(curDescriptor, refDescriptor, matches); // queryDescriptor, trainDescriptor
 			cout << "Matches Num: " << matches.size() << endl; // 这里的size和queryDescriptor的行数一样,为query的每一个向量都找了一个匹配向量
+
+			// 根据距离，选出其中的较优的匹配点
+			double maxDist = 0;
+			double minDist = 100;
+			for(int i = 0; i < matches.size(); i++){
+				double dist = matches[i].distance;
+				if(dist < minDist) minDist = dist;
+				if(dist > maxDist) maxDist = dist;
+			}
+			cout << "Max Distance: " << maxDist << endl;
+			cout << "Min Distance: " << minDist << endl;
+
+			vector<DMatch> goodMatches;
+			for(int i = 0; i < matches.size(); i++){
+				if(matches[i].distance < minDist + 0.35 * (maxDist - minDist)){
+					goodMatches.push_back(matches[i]);
+				}
+			}
+			cout << "Good Matches Num: " << goodMatches.size() << endl;
+
+			// 画出匹配结果
+			/*Mat matchedImg;
+			drawMatches(curFrame->getImage(), curKpoint, refpLayer->getImage(), refKpoint, goodMatches, matchedImg, 
+				Scalar::all(-1), CV_RGB(0,255,0), Mat(), 2);
+			imshow("Matched Result", matchedImg);
+			waitKey(0);*/
 
 			//
 
