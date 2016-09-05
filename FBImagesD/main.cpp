@@ -12,6 +12,7 @@ using namespace std;
 using namespace cv;
 
 const string fileDir  = "SrcData\\Data\\Bookshelf_2\\";
+const string resultDir = "Result\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
@@ -21,6 +22,9 @@ class PyramidLayer{
 	Mat image; // 这一层的图片
 	vector<KeyPoint> keypoints;  // 该图片的特征点
 	Mat descriptors; // 该图片的特征向量  
+	vector<Point2f> inlierPts; // 和refImage匹配成功的特征点
+	vector<Point2f> refInlierPts; 
+	vector<DMatch> inlierMatches; // 匹配，queryIdx, trainIdx依然对应着最开始算出的keypoints和refKpoint的索引
 
 public:
 	PyramidLayer(){}
@@ -52,6 +56,69 @@ public:
 		cout << "Descriptors Size: " << descriptors.size() << endl;
 	}
 
+	// 
+	void calMatchPtsWithRef(Mat & refDescriptor, vector<KeyPoint> & refKpoint, Ptr<DescriptorMatcher> matcher){
+		calImageDescriptors();  // 计算当帧的特征向量和特征点
+
+		// 进行特征向量匹配
+		vector<DMatch> matches; // 匹配结果
+		matcher->match(descriptors, refDescriptor, matches); // queryDescriptor, trainDescriptor
+		cout << "Matches Num: " << matches.size() << endl; // 这里的size和queryDescriptor的行数一样,为query的每一个向量都找了一个匹配向量
+		
+		// 根据距离，选出其中的较优的匹配点
+		double maxDist = 0;
+		double minDist = 100;
+		for(unsigned int i = 0; i < matches.size(); i++){
+			double dist = matches[i].distance;
+			if(dist < minDist) minDist = dist;
+			if(dist > maxDist) maxDist = dist;
+		}
+		cout << "Max Distance: " << maxDist << endl;
+		cout << "Min Distance: " << minDist << endl;
+
+		vector<DMatch> goodMatches;
+		for(unsigned int i = 0; i < matches.size(); i++){
+			if(matches[i].distance < minDist + 0.38 * (maxDist - minDist)){
+				goodMatches.push_back(matches[i]);
+			}
+		}
+		cout << "Good Matches Num: " << goodMatches.size() << endl;
+
+		// 分别取出两个图像中匹配的特征点
+		int matchedNum = (int)goodMatches.size();
+		vector<Point2f> refMatchPts, curMatchPts;
+		for(int i = 0; i < matchedNum; i++){
+			refMatchPts.push_back(refKpoint[goodMatches[i].trainIdx].pt);
+			curMatchPts.push_back(keypoints[goodMatches[i].queryIdx].pt);
+		}
+
+		// 计算基础矩阵F(用RANSAC方法)：表示的是某个物体或场景各特征在不同的两张照片对应特征点图像坐标的关系，x'的转置乘以F，再乘以x的结果为0
+		// RANSAC为RANdom Sample Consensus的缩写，它是根据一组包含异常数据的样本数据集，计算出数据的数学模型参数，得到有效样本数据的算法
+		Mat fundMat;
+		vector<uchar> RANSACStatus;   // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
+		findFundamentalMat(curMatchPts, refMatchPts, RANSACStatus, FM_RANSAC);
+			
+		// 使用RANSAC方法计算基础矩阵后可以得到一个status向量，用来删除错误的匹配
+		for(int i = 0; i < matchedNum; i++){
+			if(RANSACStatus[i] != 0){ 
+				refInlierPts.push_back(refMatchPts[i]);
+				inlierPts.push_back(curMatchPts[i]);
+				inlierMatches.push_back(goodMatches[i]);  // 这个inlierMatches的queryIdx, trainIdx依然对应着最开始算出的keypoints和refKpoint的索引
+			}
+		}
+		cout << "Matches Num After RANSAC: " << inlierMatches.size() << endl;
+		cout << endl;
+	}
+
+	// 显示匹配图形
+	void showMatchedImg(Mat & refImg, vector<KeyPoint> & refKpt){
+		Mat matchedImg;
+		drawMatches(image, keypoints, refImg, refKpt, inlierMatches, matchedImg, 
+				Scalar::all(-1), CV_RGB(0,255,0), Mat(), 2);
+		imshow("Matched Result", matchedImg);
+		waitKey(0);
+	}
+
 	Mat getImageDescriptors(){
 		calImageDescriptors();
 		return descriptors;
@@ -59,6 +126,14 @@ public:
 
 	vector<KeyPoint> & getKeypoints(){
 		return keypoints;
+	}
+
+	vector<Point2f> & getRefMatchPts(){
+		return refInlierPts; 
+	}
+
+	vector<Point2f> & getCurMatchPts(){
+		return inlierPts;
 	}
 };
 
@@ -149,81 +224,20 @@ public:
 
 			if(frame == REF) continue;
 
-			// 计算当前帧的特征向量和特征点
+			// 计算当前帧（最粗糙层）与参考帧的匹配特征点
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
-			Mat curDescriptor = curFrame->getImageDescriptors();
-			vector<KeyPoint> & curKpoint = curFrame->getKeypoints();
-
-			// 进行特征向量匹配
-			vector<DMatch> matches; // 匹配结果
-			matcher->match(curDescriptor, refDescriptor, matches); // queryDescriptor, trainDescriptor
-			cout << "Matches Num: " << matches.size() << endl; // 这里的size和queryDescriptor的行数一样,为query的每一个向量都找了一个匹配向量
-
-			// 根据距离，选出其中的较优的匹配点
-			double maxDist = 0;
-			double minDist = 100;
-			for(int i = 0; i < matches.size(); i++){
-				double dist = matches[i].distance;
-				if(dist < minDist) minDist = dist;
-				if(dist > maxDist) maxDist = dist;
-			}
-			cout << "Max Distance: " << maxDist << endl;
-			cout << "Min Distance: " << minDist << endl;
-
-			vector<DMatch> goodMatches;
-			for(unsigned int i = 0; i < matches.size(); i++){
-				if(matches[i].distance < minDist + 0.4 * (maxDist - minDist)){
-					goodMatches.push_back(matches[i]);
-				}
-			}
-			cout << "Good Matches Num: " << goodMatches.size() << endl;
-
-			// 分别取出两个图像中匹配的特征点
-			int matchedNum = (int)goodMatches.size();
-			vector<Point2f> refMatchPts, curMatchPts;
-			for(int i = 0; i < matchedNum; i++){
-				refMatchPts.push_back(refKpoint[goodMatches[i].trainIdx].pt);
-				curMatchPts.push_back(curKpoint[goodMatches[i].queryIdx].pt);
-			}
-			
-			// 计算基础矩阵F(用RANSAC方法)：表示的是某个物体或场景各特征在不同的两张照片对应特征点图像坐标的关系，x'的转置乘以F，再乘以x的结果为0
-			// RANSAC为RANdom Sample Consensus的缩写，它是根据一组包含异常数据的样本数据集，计算出数据的数学模型参数，得到有效样本数据的算法
-			Mat fundMat;
-			vector<uchar> RANSACStatus;   // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
-			findFundamentalMat(curMatchPts, refMatchPts, RANSACStatus, FM_RANSAC);
-			
-			// 使用RANSAC方法计算基础矩阵后可以得到一个status向量，用来删除错误的匹配
-			vector<Point2f> refInlierPt, curInlierPt; 
-			vector<DMatch> inlierMatches;
-			for(int i = 0; i < matchedNum; i++){
-				if(RANSACStatus[i] != 0){
-					refInlierPt.push_back(refMatchPts[i]);
-					curInlierPt.push_back(curMatchPts[i]);
-					inlierMatches.push_back(goodMatches[i]);
-				}
-			}
-			cout << "Matches Num After RANSAC: " << inlierMatches.size() << endl;
-
+			curFrame->calMatchPtsWithRef(refDescriptor, refKpoint, matcher);
+	
 			// 画出匹配结果
-			/*Mat matchedImg;
-			drawMatches(curFrame->getImage(), curKpoint, refpLayer->getImage(), refKpoint, inlierMatches, matchedImg, 
-				Scalar::all(-1), CV_RGB(0,255,0), Mat(), 2);
-			imshow("Matched Result", matchedImg);
-			waitKey(0);*/
+			curFrame->showMatchedImg(curFrame->getImage(), refKpoint);
 
-					
-			
+			// 计算homography
+			//Mat homography = findHomography(curFrame->getCurMatchPts(), refInlierPt, CV_FM_RANSAC);  // srcPt, dstPt
+			//cout << homography << endl;
 
-			
-			cout << endl;
 		}
-		
-		
-		
 	}
-
-
 
 	void showImages(vector<Mat> Images){
 		int imageNum = Images.size();
