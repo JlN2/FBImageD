@@ -15,7 +15,7 @@ const string fileDir  = "SrcData\\Data\\Bookshelf_2\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
-const int FEATURE_LAYER = 0;   //------------------应该从哪一层开始算特征点？
+const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
 
 class PyramidLayer{
 	Mat image; // 这一层的图片
@@ -172,21 +172,48 @@ public:
 			cout << "Min Distance: " << minDist << endl;
 
 			vector<DMatch> goodMatches;
-			for(int i = 0; i < matches.size(); i++){
-				if(matches[i].distance < minDist + 0.35 * (maxDist - minDist)){
+			for(unsigned int i = 0; i < matches.size(); i++){
+				if(matches[i].distance < minDist + 0.4 * (maxDist - minDist)){
 					goodMatches.push_back(matches[i]);
 				}
 			}
 			cout << "Good Matches Num: " << goodMatches.size() << endl;
 
+			// 分别取出两个图像中匹配的特征点
+			int matchedNum = (int)goodMatches.size();
+			vector<Point2f> refMatchPts, curMatchPts;
+			for(int i = 0; i < matchedNum; i++){
+				refMatchPts.push_back(refKpoint[goodMatches[i].trainIdx].pt);
+				curMatchPts.push_back(curKpoint[goodMatches[i].queryIdx].pt);
+			}
+			
+			// 计算基础矩阵F(用RANSAC方法)：表示的是某个物体或场景各特征在不同的两张照片对应特征点图像坐标的关系，x'的转置乘以F，再乘以x的结果为0
+			// RANSAC为RANdom Sample Consensus的缩写，它是根据一组包含异常数据的样本数据集，计算出数据的数学模型参数，得到有效样本数据的算法
+			Mat fundMat;
+			vector<uchar> RANSACStatus;   // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
+			findFundamentalMat(curMatchPts, refMatchPts, RANSACStatus, FM_RANSAC);
+			
+			// 使用RANSAC方法计算基础矩阵后可以得到一个status向量，用来删除错误的匹配
+			vector<Point2f> refInlierPt, curInlierPt; 
+			vector<DMatch> inlierMatches;
+			for(int i = 0; i < matchedNum; i++){
+				if(RANSACStatus[i] != 0){
+					refInlierPt.push_back(refMatchPts[i]);
+					curInlierPt.push_back(curMatchPts[i]);
+					inlierMatches.push_back(goodMatches[i]);
+				}
+			}
+			cout << "Matches Num After RANSAC: " << inlierMatches.size() << endl;
+
 			// 画出匹配结果
 			/*Mat matchedImg;
-			drawMatches(curFrame->getImage(), curKpoint, refpLayer->getImage(), refKpoint, goodMatches, matchedImg, 
+			drawMatches(curFrame->getImage(), curKpoint, refpLayer->getImage(), refKpoint, inlierMatches, matchedImg, 
 				Scalar::all(-1), CV_RGB(0,255,0), Mat(), 2);
 			imshow("Matched Result", matchedImg);
 			waitKey(0);*/
 
-			//
+					
+			
 
 			
 			cout << endl;
