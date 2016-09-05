@@ -57,7 +57,7 @@ public:
 		return descriptors;
 	}
 
-	vector<KeyPoints> & getKeypoints(){
+	vector<KeyPoint> & getKeypoints(){
 		return keypoints;
 	}
 };
@@ -141,12 +141,26 @@ public:
 		Mat refDescriptor = refpLayer->getImageDescriptors();  
 		vector<KeyPoint> & refKpoint = refpLayer->getKeypoints();
 
+		// BruteForce和FlannBased是opencv二维特征点匹配常用的两种办法，BF找最佳，比较暴力，Flann快，找近似，但是uchar类型描述子（BRIEF）只能用BF
+		Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create( "BruteForce" ); 
+		
 		// 1. 计算每一帧和参考帧的Homography（3*3矩阵） 金字塔
 		for(int frame = 0; frame < FRAME_NUM; frame++){
 			// 计算当前帧的特征向量和特征点
-			curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
+			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
+			PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
+			Mat curDescriptor = curFrame->getImageDescriptors();
+			vector<KeyPoint> & curKpoint = curFrame->getKeypoints();
 
+			// 进行特征向量匹配
+			vector<DMatch> matches; // 匹配结果
+			matcher.match(curDescriptor, refDescriptor, matches); // queryDescriptor, trainDescriptor
+			cout << "Matches Num: " << matches.size() << endl; // 这里的size和queryDescriptor的行数一样,为query的每一个向量都找了一个匹配向量
 
+			//
+
+			
+			cout << endl;
 		}
 		
 		
@@ -175,6 +189,7 @@ int main(){
 	FBID.readBurstImages(fileDir);
 	//FBID.showImages(FBID.oriImageSet); 
 	FBID.calPyramidSet();
+	FBID.calHomographyFlowPyramidSet();
 
 	system("pause");
 
