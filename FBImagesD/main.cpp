@@ -7,6 +7,7 @@
 #include <opencv2\opencv.hpp>
 #include <opencv2\features2d\features2d.hpp>
 #include <opencv2\nonfree\features2d.hpp>
+#include <math.h>
 
 using namespace std;
 using namespace cv;
@@ -16,7 +17,32 @@ const string resultDir = "Result\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
-const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
+const int FEATURE_LAYER = 1;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
+
+class ImageNode{
+	vector<int> matchedPts;
+	Mat H; // 与对应的参考帧的ImageNode的homography矩阵（3*3）
+
+public:
+
+	void addMatchedPts(int idx){
+		matchedPts.push_back(idx);
+	}
+
+	void calHomography(vector<Point2f> & pts, vector<Point2f> & refPts){
+		vector<Point2f> points, refPoints;
+		for(unsigned int i = 0; i < matchedPts.size(); i++){
+			points.push_back(pts[matchedPts[i]]);
+			refPoints.push_back(refPts[matchedPts[i]]);
+		}
+		H = findHomography(points, refPoints, CV_FM_RANSAC);
+	}
+
+	void getHomography(){
+		return H;
+	}
+	
+};
 
 class PyramidLayer{
 	Mat image; // 这一层的图片
@@ -25,11 +51,14 @@ class PyramidLayer{
 	vector<Point2f> inlierPts; // 和refImage匹配成功的特征点
 	vector<Point2f> refInlierPts; 
 	vector<DMatch> inlierMatches; // 匹配，queryIdx, trainIdx依然对应着最开始算出的keypoints和refKpoint的索引
+	int layer;  // 第几层（0层是coarsest）
+	vector<ImageNode> nodes;
 
 public:
 	PyramidLayer(){}
-	PyramidLayer(Mat & newImage){
+	PyramidLayer(Mat & newImage, int _layer){
 		image = newImage;
+		layer = _layer;
 	}
 
 	Mat getImage(){
@@ -56,7 +85,7 @@ public:
 		cout << "Descriptors Size: " << descriptors.size() << endl;
 	}
 
-	// 
+	// 计算匹配的特征点
 	void calMatchPtsWithRef(Mat & refDescriptor, vector<KeyPoint> & refKpoint, Ptr<DescriptorMatcher> matcher){
 		calImageDescriptors();  // 计算当帧的特征向量和特征点
 
@@ -98,7 +127,7 @@ public:
 		vector<uchar> RANSACStatus;   // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
 		findFundamentalMat(curMatchPts, refMatchPts, RANSACStatus, FM_RANSAC);
 			
-		// 使用RANSAC方法计算基础矩阵后可以得到一个status向量，用来删除错误的匹配
+		// 使用RANSAC方法计算基础矩阵后可以得到一个status向量，用来删除错误的匹配（之前已经筛过一遍了，所以不是很有效果）
 		for(int i = 0; i < matchedNum; i++){
 			if(RANSACStatus[i] != 0){ 
 				refInlierPts.push_back(refMatchPts[i]);
@@ -108,6 +137,26 @@ public:
 		}
 		cout << "Matches Num After RANSAC: " << inlierMatches.size() << endl;
 		cout << endl;
+	}
+
+	// 将该图形matched keypoints分配到各个ImageNode
+	void distributeFeaturePts(){
+		int nodeNumPerEdge = 1 << layer;  
+		int nodeLength = image.cols / nodeNumPerEdge;
+		int nodeWidth = image.rows / nodeNumPerEdge;
+		cout << "node length: " << nodeLength << " node width: " << nodeWidth << endl;
+
+		int nodeNum = nodeNumPerEdge * nodeNumPerEdge;
+		nodes.resize(nodeNum);
+
+		for(unsigned int i = 0; i < inlierPts.size(); i++){
+			int col = (int)floor(inlierPts[i].x / nodeLength);
+			int row = (int)floor(inlierPts[i].y / nodeWidth);
+
+			//cout << inlierPts[i].x << "," << inlierPts[i].y << endl;
+			//cout << col << "," << row << endl;
+			nodes[row * nodeNumPerEdge + col].addMatchedPts(i);
+		}
 	}
 
 	// 显示匹配图形
@@ -128,13 +177,13 @@ public:
 		return keypoints;
 	}
 
-	vector<Point2f> & getRefMatchPts(){
+	/*vector<Point2f> & getRefMatchPts(){
 		return refInlierPts; 
 	}
 
 	vector<Point2f> & getCurMatchPts(){
 		return inlierPts;
-	}
+	}*/
 };
 
 class Pyramid{
@@ -156,20 +205,21 @@ public:
 		
 		// 计算Pyramid, 最高层是原图， pyramid[0]是最粗糙的
 		pyramid.resize(layerNum);
-		pyramid[layerNum - 1] = Image;
+		PyramidLayer oriLayer(Image, layerNum - 1);
+		pyramid[layerNum - 1] = oriLayer;
 		for(int i = layerNum - 2; i >= 0; i--){
 			Mat srcImage = pyramid[i+1].getImage();
 			Mat dstImage;
 			// 用pyrDown进行下采样操作，执行了高斯金字塔建造的向下采样的步骤; 改变图像尺寸还可以用resize()
 			pyrDown(srcImage, dstImage, Size(srcImage.cols >> 1, srcImage.rows >> 1));
-			PyramidLayer newLayer(dstImage);
+			PyramidLayer newLayer(dstImage, i);
 			pyramid[i] = newLayer;
 		}
 	}
 
 	vector<Mat> getImagePyramid(){
 		vector<Mat> imagePyramid;
-		for(int i = 0; i < pyramid.size(); i++){
+		for(unsigned int i = 0; i < pyramid.size(); i++){
 			imagePyramid.push_back(pyramid[i].getImage());
 		}
 		return imagePyramid;
@@ -237,6 +287,10 @@ public:
 			//cout << homography << endl;
 
 		}
+		Pyramid* curPyramid = imagePyramidSet[1]; // 当前图片金字塔
+		PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
+		
+		curFrame->distributeFeaturePts();
 	}
 
 	void showImages(vector<Mat> Images){
