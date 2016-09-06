@@ -35,11 +35,19 @@ public:
 			points.push_back(pts[matchedPts[i]]);
 			refPoints.push_back(refPts[matchedPts[i]]);
 		}
-		H = findHomography(points, refPoints, CV_FM_RANSAC);
+		H = findHomography(points, refPoints, CV_RANSAC);
+	}
+
+	void passParentHomography(Mat parentH){
+		H = parentH;
 	}
 
 	Mat getHomography(){
 		return H;
+	}
+
+	unsigned int getMatchedPtsSize(){
+		return matchedPts.size();
 	}
 	
 };
@@ -157,11 +165,6 @@ public:
 			//cout << col << "," << row << endl;
 			nodes[row * nodeNumPerEdge + col].addMatchedPts(i);
 		}
-
-		/*for(int i = 0; i < nodeNumPerEdge * nodeNumPerEdge; i++){
-			nodes[i].calHomography(inlierPts, refInlierPts);
-			cout << nodes[i].getHomography() << endl;
-		}*/
 	}
 
 	void addMatchedPts(Point2f & point, Point2f & refPoint){
@@ -181,6 +184,21 @@ public:
 	Mat getImageDescriptors(){
 		calImageDescriptors();
 		return descriptors;
+	}
+
+	void calNodeHomography(int row, int col, Mat parentHomography){
+		int featurePtSize = nodes[row * (1 << layer) + col].getMatchedPtsSize();
+		// 如果该Node特征点数量太少，则取上一层的Homography
+		if(featurePtSize < 8){    
+			nodes[row * (1 << layer) + col].passParentHomography(parentHomography);
+		}
+		else{
+			nodes[row * (1 << layer) + col].calHomography(inlierPts, refInlierPts); 
+		}
+	}
+
+	Mat getNodesHomography(int row, int col){
+		return nodes[row * (1 << layer) + col].getHomography();
 	}
 
 	vector<KeyPoint> & getKeypoints(){
@@ -255,6 +273,27 @@ public:
 		}
 	}
 
+	// 计算这个图像金字塔的homography金字塔
+	void calHomographyPyramid(){
+		for(unsigned int layer = 0; layer < pyramid.size(); layer++){
+			int nodeNumPerEdge = 1 << layer;
+
+			for(int row = 0; row < nodeNumPerEdge; row++){
+				for(int col = 0; col < nodeNumPerEdge; col++){
+					Mat parentHomography(3, 3, CV_32F, Scalar::all(0));
+					
+					if(layer != 0){
+						int parentRow = row >> 1;
+						int parentCol = col >> 1;
+						parentHomography = pyramid[layer-1].getNodesHomography(parentRow, parentCol);
+					}
+					pyramid[layer].calNodeHomography(row, col, parentHomography);
+				}
+			}
+
+		}
+	}
+
 	vector<Mat> getImagePyramid(){
 		vector<Mat> imagePyramid;
 		for(unsigned int i = 0; i < pyramid.size(); i++){
@@ -326,7 +365,8 @@ public:
 			// 将每一层的特征点分配到每个ImageNode
 			curPyramid->distributeFeaturePtsByLayer();
 
-			// 
+			// 计算每一帧（除参考帧）的homography金字塔
+			curPyramid->calHomographyPyramid();
 
 
 
