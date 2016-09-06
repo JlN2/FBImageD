@@ -245,8 +245,13 @@ public:
 				//cout << featMatchPts[i].x * ratio << "," << featMatchPts[i].y * ratio << endl;
 				pyramid[layer].addMatchedPts(tempPts, tempRefPts);
 			}
-			//cout << pyramid[layer].getRefMatchPts().size() << endl;
+		}
+	}
 
+	// 将每一层的特征点分到每一个ImageNode
+	void distributeFeaturePtsByLayer(){
+		for(unsigned int layer = 0; layer < pyramid.size(); layer++){
+			pyramid[layer].distributeFeaturePts();
 		}
 	}
 
@@ -317,6 +322,14 @@ public:
 
 			// 计算每一层的特征点（将coarse level的特征点scale到其他层）
 			curPyramid->calFeaturePyramid();
+
+			// 将每一层的特征点分配到每个ImageNode
+			curPyramid->distributeFeaturePtsByLayer();
+
+			// 
+
+
+
 
 			// 计算homography
 			//Mat homography = findHomography(curFrame->getCurMatchPts(), refInlierPt, CV_FM_RANSAC);  // srcPt, dstPt
