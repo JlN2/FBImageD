@@ -17,7 +17,7 @@ const string resultDir = "Result\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
-const int FEATURE_LAYER = 1;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
+const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
 
 class ImageNode{
 	vector<int> matchedPts;
@@ -38,7 +38,7 @@ public:
 		H = findHomography(points, refPoints, CV_FM_RANSAC);
 	}
 
-	void getHomography(){
+	Mat getHomography(){
 		return H;
 	}
 	
@@ -149,14 +149,24 @@ public:
 		int nodeNum = nodeNumPerEdge * nodeNumPerEdge;
 		nodes.resize(nodeNum);
 
-		for(unsigned int i = 0; i < inlierPts.size(); i++){
-			int col = (int)floor(inlierPts[i].x / nodeLength);
-			int row = (int)floor(inlierPts[i].y / nodeWidth);
+		for(unsigned int i = 0; i < refInlierPts.size(); i++){
+			int col = (int)floor(refInlierPts[i].x / nodeLength);
+			int row = (int)floor(refInlierPts[i].y / nodeWidth);
 
 			//cout << inlierPts[i].x << "," << inlierPts[i].y << endl;
 			//cout << col << "," << row << endl;
 			nodes[row * nodeNumPerEdge + col].addMatchedPts(i);
 		}
+
+		/*for(int i = 0; i < nodeNumPerEdge * nodeNumPerEdge; i++){
+			nodes[i].calHomography(inlierPts, refInlierPts);
+			cout << nodes[i].getHomography() << endl;
+		}*/
+	}
+
+	void addMatchedPts(Point2f & point, Point2f & refPoint){
+		inlierPts.push_back(point);
+		refInlierPts.push_back(refPoint);
 	}
 
 	// 显示匹配图形
@@ -177,13 +187,13 @@ public:
 		return keypoints;
 	}
 
-	/*vector<Point2f> & getRefMatchPts(){
+	vector<Point2f> & getRefMatchPts(){
 		return refInlierPts; 
 	}
 
 	vector<Point2f> & getCurMatchPts(){
 		return inlierPts;
-	}*/
+	}
 };
 
 class Pyramid{
@@ -214,6 +224,29 @@ public:
 			pyrDown(srcImage, dstImage, Size(srcImage.cols >> 1, srcImage.rows >> 1));
 			PyramidLayer newLayer(dstImage, i);
 			pyramid[i] = newLayer;
+		}
+	}
+
+	// 计算每一层的特征点（将coarse level的特征点scale到其他层）
+	void calFeaturePyramid(){
+		vector<Point2f> & featMatchPts = pyramid[FEATURE_LAYER].getCurMatchPts();
+		vector<Point2f> & featRefMatchPts = pyramid[FEATURE_LAYER].getRefMatchPts();
+		for(unsigned int layer = 0; layer < pyramid.size(); layer++){
+			if(layer == FEATURE_LAYER) continue;
+
+			int featureRow = 1 << FEATURE_LAYER;
+			int row = 1 << layer;
+			float ratio = (float)row / (float)featureRow;
+			
+			// 将点从FEATURE_LAYER（0层）scale到其他层
+			for(unsigned int i = 0; i < featMatchPts.size(); i++){
+				Point2f tempPts(featMatchPts[i].x * ratio, featMatchPts[i].y * ratio);
+				Point2f tempRefPts(featRefMatchPts[i].x * ratio, featRefMatchPts[i].y * ratio);
+				//cout << featMatchPts[i].x * ratio << "," << featMatchPts[i].y * ratio << endl;
+				pyramid[layer].addMatchedPts(tempPts, tempRefPts);
+			}
+			//cout << pyramid[layer].getRefMatchPts().size() << endl;
+
 		}
 	}
 
@@ -281,6 +314,9 @@ public:
 	
 			// 画出匹配结果
 			curFrame->showMatchedImg(curFrame->getImage(), refKpoint);
+
+			// 计算每一层的特征点（将coarse level的特征点scale到其他层）
+			curPyramid->calFeaturePyramid();
 
 			// 计算homography
 			//Mat homography = findHomography(curFrame->getCurMatchPts(), refInlierPt, CV_FM_RANSAC);  // srcPt, dstPt
