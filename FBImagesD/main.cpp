@@ -152,7 +152,7 @@ public:
 		int nodeNumPerEdge = 1 << layer;  
 		int nodeLength = image.cols / nodeNumPerEdge;
 		int nodeWidth = image.rows / nodeNumPerEdge;
-		cout << "node length: " << nodeLength << " node width: " << nodeWidth << endl;
+		//cout << "node length: " << nodeLength << " node width: " << nodeWidth << endl;
 
 		int nodeNum = nodeNumPerEdge * nodeNumPerEdge;
 		nodes.resize(nodeNum);
@@ -188,6 +188,7 @@ public:
 
 	void calNodeHomography(int row, int col, Mat parentHomography){
 		int featurePtSize = nodes[row * (1 << layer) + col].getMatchedPtsSize();
+		cout << "Feature Points Num：" << featurePtSize << endl;
 		// 如果该Node特征点数量太少，则取上一层的Homography
 		if(featurePtSize < 8){    
 			nodes[row * (1 << layer) + col].passParentHomography(parentHomography);
@@ -277,8 +278,8 @@ public:
 	void calHomographyPyramid(){
 		for(unsigned int layer = 0; layer < pyramid.size(); layer++){
 			int nodeNumPerEdge = 1 << layer;
-
-			for(int row = 0; row < nodeNumPerEdge; row++){
+			// 一层一层算（从最粗糙层开始）
+			for(int row = 0; row < nodeNumPerEdge; row++){   // 对每一层，算每个node的homography
 				for(int col = 0; col < nodeNumPerEdge; col++){
 					Mat parentHomography(3, 3, CV_32F, Scalar::all(0));
 					
@@ -287,10 +288,11 @@ public:
 						int parentCol = col >> 1;
 						parentHomography = pyramid[layer-1].getNodesHomography(parentRow, parentCol);
 					}
-					pyramid[layer].calNodeHomography(row, col, parentHomography);
+					pyramid[layer].calNodeHomography(row, col, parentHomography); 
+					//cout << row << "," << col << endl << pyramid[layer].getNodesHomography(row, col) << endl;
 				}
 			}
-
+			//cout << endl;
 		}
 	}
 
@@ -368,12 +370,6 @@ public:
 			// 计算每一帧（除参考帧）的homography金字塔
 			curPyramid->calHomographyPyramid();
 
-
-
-
-			// 计算homography
-			//Mat homography = findHomography(curFrame->getCurMatchPts(), refInlierPt, CV_FM_RANSAC);  // srcPt, dstPt
-			//cout << homography << endl;
 
 		}
 		Pyramid* curPyramid = imagePyramidSet[1]; // 当前图片金字塔
