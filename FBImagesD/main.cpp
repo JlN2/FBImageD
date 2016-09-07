@@ -275,6 +275,7 @@ public:
 				consistImage.at<Vec3b>(r, c) = image.at<Vec3b>(oriRow, oriCol);
 			}
 		}
+		
 		//imshow("consist", consistImage);
 		//waitKey(0);
 	}
@@ -425,6 +426,8 @@ public:
 	vector<Mat> oriImageSet;      // 存储原来的每帧图片
 	vector<Pyramid*> imagePyramidSet;  // 图片金字塔（高斯金字塔）
 	Pyramid* refPyramid;   // 参考图片的金字塔
+	vector<Mat> integralImageSet;   // 所有Consistent Image的积分图
+	vector<Mat> consistGrayImageSet; // 所有Consistent Image的灰度图
 
 	void readBurstImages(const string fileDir){
 		Mat img;
@@ -490,15 +493,21 @@ public:
 
 	// 第二步：选择consistent pixel 
 	void consistentPixelSelection(){
+		
 		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(CONSIST_LAYER);
 		Mat refImage = refpLayer->getImage();
 		Mat medianImg = refImage.clone();
 		medianImg = medianImg / FRAME_NUM;
-		imshow("median", medianImg);
-			waitKey(0);
+		integralImageSet.resize(FRAME_NUM);   // 所有Consistent Image的积分图
+		consistGrayImageSet.resize(FRAME_NUM); // 所有Consistent Image的灰度图
 
 		for(int frame = 0; frame < FRAME_NUM; frame++){
-			if(frame == REF) continue;
+			if(frame == REF){
+				cvtColor(refImage, consistGrayImageSet[frame], CV_RGB2GRAY);
+				integral(consistGrayImageSet[frame], integralImageSet[frame], CV_32S);
+				// integral(refImage, integralImageSet[frame], CV_32SC3);  如果不转灰度就算积分图，用这个
+				continue;
+			}
 
 			// 将图片用homography flow调整成一个consistent image(即和参考帧一致)(CONSIST_LAYER)
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
@@ -508,13 +517,23 @@ public:
 			// 求median图像
 			Mat & consistImg = curFrame->getConsistImage();
 			medianImg = medianImg + consistImg / FRAME_NUM;
-			imshow("consist", consistImg);
-			waitKey(0);
-			imshow("median", medianImg);
-			waitKey(0);
+			
+			// 转灰度图
+			cvtColor(consistImg, consistGrayImageSet[frame], CV_RGB2GRAY);
+
+			// 求所有consistent 灰度图的积分图(原图行列各加1，第一行第一列均为0）
+			integral(consistGrayImageSet[frame], integralImageSet[frame], CV_32S);
+			//integral(consistImage, integralImageSet[frame], CV_32SC3);  // 如果不转灰度就算积分图，用这个
 		}
 
-		// 求median图像
+		// 求median图的灰度图和积分图
+		Mat grayMedianImg, integralMedianImg;
+		cvtColor(medianImg, grayMedianImg, CV_RGB2GRAY);
+		integral(grayMedianImg, integralMedianImg, CV_32S);
+
+
+		
+
 	}
 
 	void showImages(vector<Mat> Images){
