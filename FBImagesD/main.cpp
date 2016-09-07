@@ -18,6 +18,17 @@ const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
 const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
+const int CONSIST_LAYER = 0;
+
+int max(int a, int b){
+	if(a < b) return b;
+	return a;
+}
+
+int min(int a, int b){
+	if(a < b) return a;
+	return b;
+}
 
 class ImageNode{
 	vector<int> matchedPts;
@@ -62,6 +73,7 @@ class PyramidLayer{
 	int layer;  // 第几层（0层是coarsest）
 	vector<ImageNode> nodes;
 	Mat homoFlow;  // homography flow 矩阵
+	Mat consistImage;
 
 public:
 	PyramidLayer(){}
@@ -251,6 +263,26 @@ public:
 		homoFlow = homoFlow / (float)scale;
 	}
 
+	void calConsistImage(){
+		consistImage = Mat::zeros(image.size(), CV_8UC3);
+		for(int r = 0; r < image.rows; r++){     // consistent图像(r,c)
+			for(int c = 0; c < image.cols; c++){
+				Vec2f& elem = homoFlow.at<Vec2f>(r, c);
+				int oriRow = (int)(r + elem[0] + 0.5);   // 四舍五入
+				int oriCol = (int)(c + elem[1] + 0.5);
+				oriRow = min(max(oriRow, 0), image.rows - 1);
+				oriCol = min(max(oriCol, 0), image.cols - 1);
+				consistImage.at<Vec3b>(r, c) = image.at<Vec3b>(oriRow, oriCol);
+			}
+		}
+		//imshow("consist", consistImage);
+		//waitKey(0);
+	}
+
+	Mat & getConsistImage(){
+		return consistImage;
+	}
+
 	Mat & getHomoFlow(){
 		return homoFlow;
 	}
@@ -438,7 +470,7 @@ public:
 			curFrame->calMatchPtsWithRef(refDescriptor, refKpoint, matcher);
 	
 			// 画出匹配结果
-			curFrame->showMatchedImg(curFrame->getImage(), refKpoint);
+			//curFrame->showMatchedImg(curFrame->getImage(), refKpoint);
 
 			// 计算每一层的特征点（将coarse level的特征点scale到其他层）
 			curPyramid->calFeaturePyramid();
@@ -456,7 +488,34 @@ public:
 		}
 	}
 
-	void 
+	// 第二步：选择consistent pixel 
+	void consistentPixelSelection(){
+		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(CONSIST_LAYER);
+		Mat refImage = refpLayer->getImage();
+		Mat medianImg = refImage.clone();
+		medianImg = medianImg / FRAME_NUM;
+		imshow("median", medianImg);
+			waitKey(0);
+
+		for(int frame = 0; frame < FRAME_NUM; frame++){
+			if(frame == REF) continue;
+
+			// 将图片用homography flow调整成一个consistent image(即和参考帧一致)(CONSIST_LAYER)
+			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
+			PyramidLayer* curFrame = curPyramid->getPyramidLayer(CONSIST_LAYER);
+			curFrame->calConsistImage();
+
+			// 求median图像
+			Mat & consistImg = curFrame->getConsistImage();
+			medianImg = medianImg + consistImg / FRAME_NUM;
+			imshow("consist", consistImg);
+			waitKey(0);
+			imshow("median", medianImg);
+			waitKey(0);
+		}
+
+		// 求median图像
+	}
 
 	void showImages(vector<Mat> Images){
 		int imageNum = Images.size();
@@ -479,8 +538,8 @@ int main(){
 	//FBID.showImages(FBID.oriImageSet); 
 	FBID.calPyramidSet();
 	FBID.calHomographyFlowPyramidSet();
+	FBID.consistentPixelSelection();
 
-	
 	//Mat m(Size(3,3), CV_32FC2 , Scalar::all(0));
 	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
 	//elem[0]=1212.0f;
