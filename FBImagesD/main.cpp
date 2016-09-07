@@ -35,7 +35,7 @@ public:
 			points.push_back(pts[matchedPts[i]]);
 			refPoints.push_back(refPts[matchedPts[i]]);
 		}
-		H = findHomography(points, refPoints, CV_RANSAC);
+		H = findHomography(refPoints, points, CV_RANSAC); // 从参考帧->当前帧
 	}
 
 	void passParentHomography(Mat parentH){
@@ -61,6 +61,7 @@ class PyramidLayer{
 	vector<DMatch> inlierMatches; // 匹配，queryIdx, trainIdx依然对应着最开始算出的keypoints和refKpoint的索引
 	int layer;  // 第几层（0层是coarsest）
 	vector<ImageNode> nodes;
+	Mat homoFlow;  // homography flow 矩阵
 
 public:
 	PyramidLayer(){}
@@ -186,9 +187,10 @@ public:
 		return descriptors;
 	}
 
+	// 计算给定节点的Homography
 	void calNodeHomography(int row, int col, Mat parentHomography){
 		int featurePtSize = nodes[row * (1 << layer) + col].getMatchedPtsSize();
-		cout << "Feature Points Num：" << featurePtSize << endl;
+		//cout << "Feature Points Num：" << featurePtSize << endl;
 		// 如果该Node特征点数量太少，则取上一层的Homography
 		if(featurePtSize < 8){    
 			nodes[row * (1 << layer) + col].passParentHomography(parentHomography);
@@ -196,6 +198,61 @@ public:
 		else{
 			nodes[row * (1 << layer) + col].calHomography(inlierPts, refInlierPts); 
 		}
+	}
+
+	//计算这一层的Homography Flow
+	void calHomographyFlow(){
+		int edgeLen = 1 << layer;
+		int nodeLength = image.cols / edgeLen;
+		int nodeWidth = image.rows / edgeLen;
+		homoFlow = Mat::zeros(image.rows, image.cols, CV_32FC2);
+		// 计算每一个node的homography flow
+		for(int r = 0; r < edgeLen; r++){
+			for(int c = 0; c < edgeLen; c++){
+				Mat H =	nodes[r * edgeLen + c].getHomography();
+				// 算出该node范围
+				int rowStart = r * nodeWidth;
+				int rowEnd = (r + 1) * nodeWidth - 1;
+				if(r == edgeLen - 1) rowEnd = image.rows - 1;
+				int colStart = c * nodeLength;
+				int colEnd = (c + 1) * nodeLength - 1;
+				if(c == edgeLen - 1) colEnd = image.cols - 1;
+
+				vector<Point2f> srcPts, dstPts; // src是refImage，dst是当前图片
+				srcPts.clear();
+				dstPts.clear();
+				for(int row = rowStart; row <= rowEnd; row++)   // y
+					for(int col = colStart; col <= colEnd; col++)  // x
+						srcPts.push_back(Point2f((float)col, (float)row));
+				
+				perspectiveTransform(srcPts, dstPts, H);  // [x y 1]*H = [x' y' w'], src(x, y) -> dst(x'/w', y'/w')
+
+				int idx = 0;
+				for(int row = rowStart; row <= rowEnd; row++){   // y
+					for(int col = colStart; col <= colEnd; col++){  // x
+						float deltaRow = dstPts[idx].y - srcPts[idx].y;    //  (由参考图像变换的)当前图像的row - refImage的row
+						float deltaCol = dstPts[idx].x - srcPts[idx].x;    //  (由参考图像变换的)当前图像的col - refImage的col
+						
+						Vec2f& elem = homoFlow.at<Vec2f>(row, col);// or homoFlow.at<Vec2f>( Point(col,row) );
+						elem[0] = deltaRow;
+						elem[1] = deltaCol;
+
+						idx++;
+					}
+				}
+
+			}
+		}
+	}
+
+	// 缩放homography flow
+	void calHomographyFlowByScale(Mat & finestHomoFlow, int scale){
+		resize(finestHomoFlow, homoFlow, image.size(), 0, 0, CV_INTER_AREA);
+		homoFlow = homoFlow / (float)scale;
+	}
+
+	Mat & getHomoFlow(){
+		return homoFlow;
 	}
 
 	Mat getNodesHomography(int row, int col){
@@ -281,7 +338,7 @@ public:
 			// 一层一层算（从最粗糙层开始）
 			for(int row = 0; row < nodeNumPerEdge; row++){   // 对每一层，算每个node的homography
 				for(int col = 0; col < nodeNumPerEdge; col++){
-					Mat parentHomography(3, 3, CV_32F, Scalar::all(0));
+					Mat parentHomography(3, 3, CV_64F, Scalar::all(0));
 					
 					if(layer != 0){
 						int parentRow = row >> 1;
@@ -293,6 +350,28 @@ public:
 				}
 			}
 			//cout << endl;
+		}
+	}
+
+	// 计算这个图像金字塔的homography flow（其实就相当于每个像素相对于参考帧的偏移量）
+	void calHomographyFlowPyramid(){
+		// 计算finest level 的homography flow
+		int fineLevel = pyramid.size() - 1;
+		pyramid[fineLevel].calHomographyFlow();  
+		Mat & homoFlow = pyramid[fineLevel].getHomoFlow();
+		cout << "homoFlow size: " << homoFlow.size() << endl;
+		/*Mat m(4, 4, CV_32FC2);
+		for(int i = 0; i < 4; i++)
+			for(int j = 0; j < 4; j++)
+				m.at<Vec2f>(i,j) = homoFlow.at<Vec2f>(i,j);
+		cout << m << endl;*/
+		
+		// 将最底层的homographyFLow等比例缩小，得到其他层的homographyFlow
+		for(int i = fineLevel - 1; i >= 0; i--){
+			int scale = 1 << (fineLevel - i);
+			pyramid[i].calHomographyFlowByScale(homoFlow, scale);
+			Mat & homof = pyramid[i].getHomoFlow();
+			cout << "homof size: " << homof.size() << endl;
 		}
 	}
 
@@ -348,11 +427,11 @@ public:
 		// BruteForce和FlannBased是opencv二维特征点匹配常用的两种办法，BF找最佳，比较暴力，Flann快，找近似，但是uchar类型描述子（BRIEF）只能用BF
 		Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create( "BruteForce" ); 
 		
-		// 1. 计算每一帧和参考帧的Homography（3*3矩阵） 金字塔
+		
 		for(int frame = 0; frame < FRAME_NUM; frame++){
 
 			if(frame == REF) continue;
-
+			// 1. 计算每一帧->参考帧的Homography（3*3矩阵） 金字塔
 			// 计算当前帧（最粗糙层）与参考帧的匹配特征点
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
@@ -370,13 +449,14 @@ public:
 			// 计算每一帧（除参考帧）的homography金字塔
 			curPyramid->calHomographyPyramid();
 
+			// 计算每一帧（除参考帧）的homography flow金字塔
+			curPyramid->calHomographyFlowPyramid();
 
+			cout << endl;
 		}
-		Pyramid* curPyramid = imagePyramidSet[1]; // 当前图片金字塔
-		PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
-		
-		curFrame->distributeFeaturePts();
 	}
+
+	void 
 
 	void showImages(vector<Mat> Images){
 		int imageNum = Images.size();
@@ -399,6 +479,13 @@ int main(){
 	//FBID.showImages(FBID.oriImageSet); 
 	FBID.calPyramidSet();
 	FBID.calHomographyFlowPyramidSet();
+
+	
+	//Mat m(Size(3,3), CV_32FC2 , Scalar::all(0));
+	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
+	//elem[0]=1212.0f;
+	//elem[1]=326.0f;
+	//cout << m << endl;
 
 	system("pause");
 
