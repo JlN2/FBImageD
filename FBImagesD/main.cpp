@@ -20,15 +20,6 @@ const int REF = FRAME_NUM / 2;
 const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
 const int CONSIST_LAYER = 0;
 
-int max(int a, int b){
-	if(a < b) return b;
-	return a;
-}
-
-int min(int a, int b){
-	if(a < b) return a;
-	return b;
-}
 
 class ImageNode{
 	vector<int> matchedPts;
@@ -421,13 +412,100 @@ public:
 	}
 };
 
+class ConsistentPixelSetPyramid{
+	vector<Mat> consistentPixels;  // 这个相当于每层一个
+
+public:
+	ConsistentPixelSetPyramid(){}
+	ConsistentPixelSetPyramid(int layerNum){
+		consistentPixels.resize(layerNum);
+	}
+	
+	// 计算layer层的consistent pixels set
+	void calConsistentPixelSet(int layer, vector<Mat> & integralImageSet, Mat & integralMedianImg, const int thre){
+		Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
+
+		// 初始化consistent pixel set
+		refConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(10));
+		medConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(10));
+		
+		// 计算reference-based 和 median-based consistent pixels
+		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
+			for(int c = 0; c < integralMedianImg.cols - 1; c++){
+
+				// 算参数
+				int half = 2;
+				int startR = max(0, r - half);
+				int endR = min(integralMedianImg.rows - 2, r + half);
+				int startC = max(0, c - half);
+				int endC = min(integralMedianImg.cols - 2, c + half);
+				int pixelNum = (endR - startR + 1) * (endC - startC + 1);
+
+				/* -----计算reference-based consistent pixels----- */
+				// 先计算ref image的5*5块像素
+				int pixelRefSum = integralImageSet[REF].at<int>(endR+1, endC+1) - integralImageSet[REF].at<int>(startR, endC+1)
+					- integralImageSet[REF].at<int>(endR+1, startC) + integralImageSet[REF].at<int>(startR, startC);
+				int aveRefPixel = pixelRefSum / pixelNum;
+
+				// 先把ref Image的该点标记为consistent pixel
+				Vec<uchar, 10> & elem = refConsistPixelSet.at<Vec<uchar, 10>>(r, c);
+				elem[REF] = 1;
+				
+				// 从ref开始往0计算每一帧
+				for(int i = REF - 1; i >= 0; i--){
+					int pixelSum = integralImageSet[i].at<int>(endR+1, endC+1) - integralImageSet[i].at<int>(startR, endC+1)
+						- integralImageSet[i].at<int>(endR+1, startC) + integralImageSet[i].at<int>(startR, startC);
+					int avePixel = pixelSum / pixelNum;
+					if(abs(aveRefPixel - avePixel) < thre)
+						elem[i] = 1;
+					else
+						break;
+				}
+
+				// 从ref开始往右计算每一帧
+				for(int i = REF + 1; i < FRAME_NUM; i++){
+					int pixelSum = integralImageSet[i].at<int>(endR+1, endC+1) - integralImageSet[i].at<int>(startR, endC+1)
+						- integralImageSet[i].at<int>(endR+1, startC) + integralImageSet[i].at<int>(startR, startC);
+					int avePixel = pixelSum / pixelNum;
+					if(abs(aveRefPixel - avePixel) < thre)
+						elem[i] = 1;
+					else
+						break;
+				}
+
+				/* -----计算median-based consistent pixels----- */
+				// 计算median image的5*5块像素
+				int pixelMedSum =integralMedianImg.at<int>(endR+1, endC+1) - integralMedianImg.at<int>(startR, endC+1)
+					- integralMedianImg.at<int>(endR+1, startC) + integralMedianImg.at<int>(startR, startC);
+				int aveMedPixel = pixelMedSum / pixelNum;
+
+				Vec<uchar, 10> & medElem = refConsistPixelSet.at<Vec<uchar, 10>>(r, c);
+				
+				for(int i = 0; i < FRAME_NUM; i++){
+					int pixelSum = integralImageSet[i].at<int>(endR+1, endC+1) - integralImageSet[i].at<int>(startR, endC+1)
+						- integralImageSet[i].at<int>(endR+1, startC) + integralImageSet[i].at<int>(startR, startC);
+					int avePixel = pixelSum / pixelNum;
+					if(abs(aveMedPixel - avePixel) < thre)
+						elem[i] = 1;
+				}
+			}
+		}
+
+		// 结合reference-based 和 median-based 的结果
+
+
+	}
+};
+
 class FastBurstImagesDenoising{
 public:
 	vector<Mat> oriImageSet;      // 存储原来的每帧图片
 	vector<Pyramid*> imagePyramidSet;  // 图片金字塔（高斯金字塔）
 	Pyramid* refPyramid;   // 参考图片的金字塔
-	vector<Mat> integralImageSet;   // 所有Consistent Image的积分图
-	vector<Mat> consistGrayImageSet; // 所有Consistent Image的灰度图
+	ConsistentPixelSetPyramid consistPixelPyramid; // 存储consistent pixel
+
+	
+	Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
 
 	void readBurstImages(const string fileDir){
 		Mat img;
@@ -493,11 +571,16 @@ public:
 
 	// 第二步：选择consistent pixel 
 	void consistentPixelSelection(){
-		
+		vector<Mat> integralImageSet;   // 所有Consistent Image的积分图
+		vector<Mat> consistGrayImageSet; // 所有Consistent Image的灰度图
+		const int threshold = 10; // 阈值
+
+		// 计算median image（首先将refImage加入）
 		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(CONSIST_LAYER);
 		Mat refImage = refpLayer->getImage();
 		Mat medianImg = refImage.clone();
 		medianImg = medianImg / FRAME_NUM;
+
 		integralImageSet.resize(FRAME_NUM);   // 所有Consistent Image的积分图
 		consistGrayImageSet.resize(FRAME_NUM); // 所有Consistent Image的灰度图
 
@@ -531,9 +614,11 @@ public:
 		cvtColor(medianImg, grayMedianImg, CV_RGB2GRAY);
 		integral(grayMedianImg, integralMedianImg, CV_32S);
 
+		// 初始化Consistent pixel pyramid
+		consistPixelPyramid = ConsistentPixelSetPyramid(refPyramid->getImagePyramid().size());
 
-		
-
+		// 算Consistent Pixels
+		consistPixelPyramid.calConsistentPixelSet(CONSIST_LAYER, integralImageSet, integralMedianImg, threshold);
 	}
 
 	void showImages(vector<Mat> Images){
@@ -555,15 +640,16 @@ FastBurstImagesDenoising FBID;
 int main(){
 	FBID.readBurstImages(fileDir);
 	//FBID.showImages(FBID.oriImageSet); 
-	FBID.calPyramidSet();
-	FBID.calHomographyFlowPyramidSet();
-	FBID.consistentPixelSelection();
+	//FBID.calPyramidSet();
+	//FBID.calHomographyFlowPyramidSet();
+	//FBID.consistentPixelSelection();
 
 	//Mat m(Size(3,3), CV_32FC2 , Scalar::all(0));
 	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
 	//elem[0]=1212.0f;
 	//elem[1]=326.0f;
 	//cout << m << endl;
+
 
 	system("pause");
 
