@@ -8,7 +8,6 @@
 #include <opencv2\features2d\features2d.hpp>
 #include <opencv2\nonfree\features2d.hpp>
 #include <math.h>
-
 using namespace std;
 using namespace cv;
 
@@ -412,6 +411,25 @@ public:
 	}
 };
 
+class ConnectedComponent{
+	vector<Point> pts;
+	int idx;
+
+public:
+	ConnectedComponent(){}
+	ConnectedComponent(int _idx){
+		idx = _idx;
+	}
+
+	void addPoint(Point p){
+		pts.push_back(p);
+	}
+
+	int getIdx(){
+		return idx;
+	}
+};
+
 class ConsistentPixelSetPyramid{
 	vector<Mat> consistentPixels;  // 这个相当于每层一个
 
@@ -420,14 +438,84 @@ public:
 	ConsistentPixelSetPyramid(int layerNum){
 		consistentPixels.resize(layerNum);
 	}
+
+	// 并查集操作
+	uchar find(uchar x, uchar parent[]){
+		uchar r = x;
+		while(parent[r] != r) r = parent[r];
+		return r;
+	}
+
+	void join(uchar s, uchar l, uchar parent[]){
+		uchar x = find(s, parent);
+		uchar y = find(l, parent);
+		if(x < y) parent[y] = x;
+		else parent[x] = y;
+	}
+
+	// 寻找连通分量(Two-Pass算法）			
+	void findConnectedComponents(vector<ConnectedComponent> & connComps, Mat & undecidedPixels){
+		int idx = 1;
+		Mat labeled(undecidedPixels.size(), CV_8U, Scalar::all(0)); 
+
+		const int MAXIDX = 500;
+		uchar parent[MAXIDX] = {0};   // 并查集操作
+		for(int i = 0; i < MAXIDX; i++) parent[i] = i;
+		bool isInConnComps = {false};
+
+		// first pass
+		for(int y = 0; y < undecidedPixels.rows; y++){
+			for(int x = 0; x < undecidedPixels.cols; x++){
+				if(undecidedPixels.at<uchar>(y, x) == 1){
+					uchar left = x - 1 < 0 ? 0 : labeled.at<uchar>(y, x - 1);
+					uchar up = y - 1 < 0 ? 0 : labeled.at<uchar>(y - 1, x);
+					if(left == 0 && up == 0) labeled.at<uchar>(y, x) = ++idx;  
+					else{
+						if(left != 0 && up != 0){
+							labeled.at<uchar>(y, x) = min(left, up);
+							join(min(left, up), max(left, up), parent);
+						}
+						else labeled.at<uchar>(y, x) = max(left, up);
+					}
+				}
+			}
+		}
+
+		// second pass
+		for(int y = 0; y < undecidedPixels.rows; y++){
+			for(int x = 0; x < undecidedPixels.cols; x++){
+				if(labeled.at<uchar>(y, x) != 0){
+					int idx = find(labeled.at<uchar>(y, x), parent)
+					labeled.at<uchar>(y, x) = idx;
+					if(isInConnComps[idx] == false){
+						ConnectedComponent cc(idx);
+						cc.addPoint(Point(x, y));
+						isInConnComps[idx] = true;
+						connComps.push_back(cc);
+					}
+					else{
+						for(int i = 0; i < connComps.size(); i++){
+							if(connComps[i].getIdx() == idx){
+								connComps[idx].addPoint(Point(x, y));
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// 两遍之后就得到了所有的Connected Component
+	}
 	
 	// 计算layer层的consistent pixels set
 	void calConsistentPixelSet(int layer, vector<Mat> & integralImageSet, Mat & integralMedianImg, const int thre){
 		Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
 
 		// 初始化consistent pixel set
-		refConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(10));
-		medConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(10));
+		refConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
+		medConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
+		consistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
 		
 		// 计算reference-based 和 median-based consistent pixels
 		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
@@ -448,7 +536,7 @@ public:
 				int aveRefPixel = pixelRefSum / pixelNum;
 
 				// 先把ref Image的该点标记为consistent pixel
-				Vec<uchar, 10> & elem = refConsistPixelSet.at<Vec<uchar, 10>>(r, c);
+				Vec<uchar, FRAME_NUM> & elem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
 				elem[REF] = 1;
 				
 				// 从ref开始往0计算每一帧
@@ -479,20 +567,41 @@ public:
 					- integralMedianImg.at<int>(endR+1, startC) + integralMedianImg.at<int>(startR, startC);
 				int aveMedPixel = pixelMedSum / pixelNum;
 
-				Vec<uchar, 10> & medElem = refConsistPixelSet.at<Vec<uchar, 10>>(r, c);
+				Vec<uchar, FRAME_NUM> & medElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
 				
 				for(int i = 0; i < FRAME_NUM; i++){
 					int pixelSum = integralImageSet[i].at<int>(endR+1, endC+1) - integralImageSet[i].at<int>(startR, endC+1)
 						- integralImageSet[i].at<int>(endR+1, startC) + integralImageSet[i].at<int>(startR, startC);
 					int avePixel = pixelSum / pixelNum;
 					if(abs(aveMedPixel - avePixel) < thre)
-						elem[i] = 1;
+						medElem[i] = 1;
 				}
+
+				/* -----结合reference-based 和 median-based 的结果----- */
+				Mat undecidedPixels(consistPixelSet.rows, consistPixelSet.cols, CV_8U, Scalar::all(0));
+
+				// 如果ref frame属于median-based consistent pixels, 那么取M和R的并集
+				Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
+				if(medElem[REF] == 1){
+					for(int i = 0; i < FRAME_NUM; i++){
+						finalElem[i] = elem[i] | medElem[i];
+					}
+				}
+				else undecidedPixels.at<uchar>(r, c) = 1;
+
+				// 否则找出那些undecided pixels的联通分量
+				vector<ConnectedComponent> connComps;
+				findConnectedComponents(connComps, undecidedPixels);
+				
 			}
 		}
 
 		// 结合reference-based 和 median-based 的结果
+		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
+			for(int c = 0; c < integralMedianImg.cols - 1; c++){
 
+			}
+		}
 
 	}
 };
@@ -649,7 +758,6 @@ int main(){
 	//elem[0]=1212.0f;
 	//elem[1]=326.0f;
 	//cout << m << endl;
-
 
 	system("pause");
 
