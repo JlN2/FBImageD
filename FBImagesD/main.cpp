@@ -654,7 +654,6 @@ public:
 	ConsistentPixelSetPyramid consistPixelPyramid; // 存储consistent pixel
 	Mat grayMedianImg;                             // CONSIST_LAYER的中位图（灰度图） 
 
-	
 	Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
 
 	void readBurstImages(const string fileDir){
@@ -789,9 +788,42 @@ public:
 		// 取出ref image并转成灰度图像
 		vector<Mat> refImagePyramid = refPyramid->getImagePyramid();
 		int layersNum = refImagePyramid.size();
-		Mat refGrayImg
-		cvtColor(refImagePyramid[layersNum - 1], refGrayImg, CV_RGB2GRAY)
+		Mat refGrayImg;
+		cvtColor(refImagePyramid[layersNum - 1], refGrayImg, CV_RGB2GRAY);
+
+		// 取得中位图（灰度）
+		Mat medGrayImg;  
+		resize(grayMedianImg, medGrayImg, refGrayImg.size(), 0, 0, CV_INTER_LINEAR);  // grayMedianImg是CONSIST_LAYER的
 		
+		// 边缘提取
+		Mat edgeImg;
+		Canny(grayMedianImg, edgeImg, 50, 125, 3);   // canny边缘检测采用双阈值值法，高阈值用来检测图像中重要的、显著的线条、轮廓等，而低阈值用来保证不丢失细节部分
+		resize(edgeImg, edgeImg, refGrayImg.size(), 0, 0, CV_INTER_NN);
+		//imshow("edge", edgeImg);
+		//waitKey(0);
+
+		// 求平坦区域和平坦区域的像素数
+		double cnt = 0;
+		for(int r = 0; r < refGrayImg.rows; r++)
+			for(int c = 0; c < refGrayImg.cols; c++){
+				edgeImg.at<uchar>(r, c) = (edgeImg.at<uchar>(r, c) == 0);
+				if(edgeImg.at<uchar>(r, c) == 1) cnt++;
+			}
+		refGrayImg = refGrayImg.mul(edgeImg);
+		refGrayImg.convertTo(refGrayImg, CV_64F);
+		medGrayImg = medGrayImg.mul(edgeImg);
+		medGrayImg.convertTo(medGrayImg, CV_64F);
+
+		// 求med和ref之差的均值和方差（平坦区域）
+		Mat diffImg = medGrayImg - refGrayImg;
+		double aveNum = sum(diffImg)[0]/ cnt;
+		for(int r = 0; r < refGrayImg.rows; r++)
+			for(int c = 0; c < refGrayImg.cols; c++){
+				if(edgeImg.at<uchar>(r, c) == 1) diffImg.at<double>(r, c) -= aveNum;
+				
+			}
+		diffImg = diffImg.mul(diffImg);
+		double noiseVar = sum(diffImg)[0] / cnt;  // sigma2
 		
 
 		//calNoiseVar();
@@ -822,6 +854,7 @@ int main(){
 	FBID.calPyramidSet();
 	FBID.calHomographyFlowPyramidSet();
 	FBID.consistentPixelSelection();
+	FBID.pixelsFusion();
 
 	//Mat m(Size(3,3), CV_32FC2 , Scalar::all(0));
 	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
@@ -829,24 +862,35 @@ int main(){
 	//elem[1]=326.0f;
 	//cout << m << endl;
 
-/*	vector<int> elem(20);	
-	for(int i = 0; i < 20; i++) elem[i] = (i + 1)*2;
-	elem[7] = 0;
-	elem[8] = 1;
-	elem[9] = 2;
-	elem[6] = 3;
-	random_shuffle(elem.begin(), elem.end());
-	for(int i = 0; i < 20; i++){
-		cout << elem[i] << " ";
+	/*Mat m(Size(3,3), CV_8U , Scalar::all(0));
+	int idx = 1;
+	for(int i = 0; i < 3; i++){
+		for(int j = 0; j < 3; j++){
+			m.at<uchar>(i, j) = idx++;
+		}
 	}
-	cout << endl;
+	Mat tmp_m, tmp_sd;
+	double a, sd;
+	meanStdDev(m, tmp_m, tmp_sd);
+	a = tmp_m.at<double>(0,0);  
+    sd = tmp_sd.at<double>(0,0);  
+	cout << "Mean: " << tmp_m << " , StdDev: " << sd << endl;  
+	Mat b(Size(3,3), CV_8U , Scalar::all(0));
 	
-	//cout << elem.begin() << endl;
-	nth_element(elem.begin(), elem.begin() + 5, elem.end());
-	for(int i = 0; i < 10; i++){
-		cout << elem[i] << " ";
+	for(int i = 0; i < 3; i++){
+		for(int j = 0; j < 3; j++){
+			b.at<uchar>(i, j) = idx;
+			idx++;
+		}
 	}
-	*/
+	cout << m << endl;
+	cout << b << endl;
+	Mat c(Size(3,3), CV_64F, Scalar::all(0));
+	m.convertTo(m,CV_64F);
+	b.convertTo(b, CV_64F);
+	c =  m.mul(m)  ;
+	cout << c << endl;*/
+	
 
 	system("pause");
 
