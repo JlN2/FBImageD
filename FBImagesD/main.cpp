@@ -428,6 +428,10 @@ public:
 	int getIdx(){
 		return idx;
 	}
+
+	vector<Point> & getCCPts(){
+		return pts;
+	}
 };
 
 class ConsistentPixelSetPyramid{
@@ -511,11 +515,13 @@ public:
 	// 计算layer层的consistent pixels set
 	void calConsistentPixelSet(int layer, vector<Mat> & integralImageSet, Mat & integralMedianImg, const int thre){
 		Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
+		Mat reliablePixelSet; // 记录reliable pixels
 
 		// 初始化consistent pixel set
 		refConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
 		medConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
 		consistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
+		reliablePixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8U);
 		
 		// 计算reference-based 和 median-based consistent pixels
 		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
@@ -568,13 +574,14 @@ public:
 				int aveMedPixel = pixelMedSum / pixelNum;
 
 				Vec<uchar, FRAME_NUM> & medElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
-				
+				int cnt = 0; // 记录有多少个median-based consistent pixels
 				for(int i = 0; i < FRAME_NUM; i++){
 					int pixelSum = integralImageSet[i].at<int>(endR+1, endC+1) - integralImageSet[i].at<int>(startR, endC+1)
 						- integralImageSet[i].at<int>(endR+1, startC) + integralImageSet[i].at<int>(startR, startC);
 					int avePixel = pixelSum / pixelNum;
 					if(abs(aveMedPixel - avePixel) < thre)
 						medElem[i] = 1;
+						cnt++;
 				}
 
 				/* -----结合reference-based 和 median-based 的结果----- */
@@ -587,22 +594,44 @@ public:
 						finalElem[i] = elem[i] | medElem[i];
 					}
 				}
-				else undecidedPixels.at<uchar>(r, c) = 1;
+				else undecidedPixels.at<uchar>(r, c) = 1;		
 
-				// 否则找出那些undecided pixels的联通分量
-				vector<ConnectedComponent> connComps;
-				findConnectedComponents(connComps, undecidedPixels);
-				
+				// 统计reliable pixels
+				if(cnt > REF) reliablePixelSet.at<uchar>(r, c) = 1;
 			}
 		}
 
-		// 结合reference-based 和 median-based 的结果
-		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
-			for(int c = 0; c < integralMedianImg.cols - 1; c++){
+		// 否则找出那些undecided pixels的联通分量
+		vector<ConnectedComponent> connComps;
+		findConnectedComponents(connComps, undecidedPixels);
 
+		// 统计每一个连通分量是reliable pixels多还是unreliable多（majority voting 多数同意，来做出不同的combine策略
+		for(unsigned int i = 0; i < connComps.size(); i++){
+			vector<Point> & CCPts = connComps[i].getCCPts();
+			int cnt = 0; // 统计连通分量中有多少个reliable pixel
+			
+			for(unsigned int j = 0; j < CCPts.size(); j++){
+				if(reliablePixelSet.at<uchar>(CCPts[j]) == 1) cnt++;
+			}
+
+			// 如果reliable pixel多，则整个连通分量都当作reliable处理，取M的结果
+			if(cnt >= CCpts.size() - cnt){ 
+				for(unsigned int j = 0; j < CCPts.size(); j++){
+					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
+					Vec<uchar, FRAME_NUM> & medElem = medConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
+					finalElem = medElem;
+				}
+			}
+			// 否则整个CC都当作unreliable处理，去R的结果
+			else{
+				for(unsigned int j = 0; j < CCPts.size(); j++){
+					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
+					Vec<uchar, FRAME_NUM> & refElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
+					finalElem = refElem;
+				}
 			}
 		}
-
+		
 	}
 };
 
