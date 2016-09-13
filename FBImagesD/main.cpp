@@ -588,8 +588,7 @@ public:
 				}
 
 				/* -----结合reference-based 和 median-based 的结果----- */
-				// 如果ref frame属于median-based consistent pixels, 那么取M和R的并集
-				
+				// 如果ref frame属于median-based consistent pixels, 那么取M和R的并集				
 				Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
 				if(medElem[REF] == 1){
 					n++;
@@ -648,11 +647,12 @@ public:
 };
 
 class FastBurstImagesDenoising{
-public:
-	vector<Mat> oriImageSet;      // 存储原来的每帧图片
-	vector<Pyramid*> imagePyramidSet;  // 图片金字塔（高斯金字塔）
-	Pyramid* refPyramid;   // 参考图片的金字塔
+public: 
+	vector<Mat> oriImageSet;                       // 存储原来的每帧图片
+	vector<Pyramid*> imagePyramidSet;              // 图片金字塔（高斯金字塔）
+	Pyramid* refPyramid;                           // 参考图片的金字塔
 	ConsistentPixelSetPyramid consistPixelPyramid; // 存储consistent pixel
+	Mat grayMedianImg;                             // CONSIST_LAYER的中位图（灰度图） 
 
 	
 	Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
@@ -721,17 +721,15 @@ public:
 
 	// 第二步：选择consistent pixel 
 	void consistentPixelSelection(){
-		vector<Mat> integralImageSet;   // 所有Consistent Image的积分图
+		vector<Mat> integralImageSet;    // 所有Consistent Image的积分图
 		vector<Mat> consistGrayImageSet; // 所有Consistent Image的灰度图
-		const int threshold = 10; // 阈值
+		const int threshold = 10;        // 阈值
 
-		// 计算median image（首先将refImage加入）
+		// 取出refImage
 		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(CONSIST_LAYER);
 		Mat refImage = refpLayer->getImage();
-		Mat medianImg = refImage.clone();
-		medianImg = medianImg / FRAME_NUM;
 
-		integralImageSet.resize(FRAME_NUM);   // 所有Consistent Image的积分图
+		integralImageSet.resize(FRAME_NUM);    // 所有Consistent Image的积分图
 		consistGrayImageSet.resize(FRAME_NUM); // 所有Consistent Image的灰度图
 
 		for(int frame = 0; frame < FRAME_NUM; frame++){
@@ -746,12 +744,9 @@ public:
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(CONSIST_LAYER);
 			curFrame->calConsistImage();
-
-			// 求median图像
-			Mat & consistImg = curFrame->getConsistImage();
-			medianImg = medianImg + consistImg / FRAME_NUM;
 			
 			// 转灰度图
+			Mat & consistImg = curFrame->getConsistImage();
 			cvtColor(consistImg, consistGrayImageSet[frame], CV_RGB2GRAY);
 
 			// 求所有consistent 灰度图的积分图(原图行列各加1，第一行第一列均为0）
@@ -759,9 +754,20 @@ public:
 			//integral(consistImage, integralImageSet[frame], CV_32SC3);  // 如果不转灰度就算积分图，用这个
 		}
 
-		// 求median图的灰度图和积分图
-		Mat grayMedianImg, integralMedianImg;
-		cvtColor(medianImg, grayMedianImg, CV_RGB2GRAY);
+		// 求median图(灰度图)和积分图
+		grayMedianImg = Mat::zeros(refImage.rows, refImage.cols, CV_8U);
+		for(int r = 0; r < grayMedianImg.rows; r++)
+			for(int c = 0; c < grayMedianImg.cols; c++){
+				vector<uchar> pixelValues;
+				for(int f = 0; f < FRAME_NUM; f++){
+					pixelValues.push_back(consistGrayImageSet[f].at<uchar>(r, c));
+				}
+				nth_element(pixelValues.begin(), pixelValues.begin() + REF, pixelValues.end());
+				grayMedianImg.at<uchar>(r, c) = pixelValues[REF];
+			}
+		//imshow("median", grayMedianImg);
+		//waitKey(0);
+		Mat integralMedianImg;
 		integral(grayMedianImg, integralMedianImg, CV_32S);
 
 		// 初始化Consistent pixel pyramid
@@ -774,7 +780,25 @@ public:
 		consistPixelPyramid.calConsistentPixelsAllLayer(refPyramid->getImagePyramid());
 	}
 
+	
 
+	// 第三步：融合得到最后的去噪图像
+	void pixelsFusion(){
+
+		/* -----计算噪声方差----- */
+		// 取出ref image并转成灰度图像
+		vector<Mat> refImagePyramid = refPyramid->getImagePyramid();
+		int layersNum = refImagePyramid.size();
+		Mat refGrayImg
+		cvtColor(refImagePyramid[layersNum - 1], refGrayImg, CV_RGB2GRAY)
+		
+		
+
+		//calNoiseVar();
+
+
+
+	}
 
 	void showImages(vector<Mat> Images){
 		int imageNum = Images.size();
