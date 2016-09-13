@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <algorithm>
 #include <stdio.h>
 #include <opencv2\core\core.hpp>     // 有Mat数据类型
 #include <opencv2\highgui\highgui.hpp>
@@ -18,7 +19,7 @@ const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
 const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
 const int CONSIST_LAYER = 0;
-
+const int MAXIDX = 500; // 找连通分量时，并查集最大下标值
 
 class ImageNode{
 	vector<int> matchedPts;
@@ -462,10 +463,9 @@ public:
 		int idx = 1;
 		Mat labeled(undecidedPixels.size(), CV_8U, Scalar::all(0)); 
 
-		const int MAXIDX = 500;
 		uchar parent[MAXIDX] = {0};   // 并查集操作
 		for(int i = 0; i < MAXIDX; i++) parent[i] = i;
-		bool isInConnComps = {false};
+		bool isInConnComps[MAXIDX] = {false};
 
 		// first pass
 		for(int y = 0; y < undecidedPixels.rows; y++){
@@ -489,7 +489,7 @@ public:
 		for(int y = 0; y < undecidedPixels.rows; y++){
 			for(int x = 0; x < undecidedPixels.cols; x++){
 				if(labeled.at<uchar>(y, x) != 0){
-					int idx = find(labeled.at<uchar>(y, x), parent)
+					uchar idx = find(labeled.at<uchar>(y, x), parent);
 					labeled.at<uchar>(y, x) = idx;
 					if(isInConnComps[idx] == false){
 						ConnectedComponent cc(idx);
@@ -498,7 +498,7 @@ public:
 						connComps.push_back(cc);
 					}
 					else{
-						for(int i = 0; i < connComps.size(); i++){
+						for(unsigned int i = 0; i < connComps.size(); i++){
 							if(connComps[i].getIdx() == idx){
 								connComps[idx].addPoint(Point(x, y));
 								break;
@@ -510,6 +510,7 @@ public:
 		}
 
 		// 两遍之后就得到了所有的Connected Component
+		cout << connComps.size() << endl;
 	}
 	
 	// 计算layer层的consistent pixels set
@@ -522,7 +523,9 @@ public:
 		medConsistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
 		consistPixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8UC(FRAME_NUM));
 		reliablePixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8U);
+		Mat undecidedPixels(consistPixelSet.rows, consistPixelSet.cols, CV_8U, Scalar::all(0));
 		
+		int n = 0;
 		// 计算reference-based 和 median-based consistent pixels
 		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
 			for(int c = 0; c < integralMedianImg.cols - 1; c++){
@@ -585,11 +588,11 @@ public:
 				}
 
 				/* -----结合reference-based 和 median-based 的结果----- */
-				Mat undecidedPixels(consistPixelSet.rows, consistPixelSet.cols, CV_8U, Scalar::all(0));
-
 				// 如果ref frame属于median-based consistent pixels, 那么取M和R的并集
+				
 				Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
 				if(medElem[REF] == 1){
+					n++;
 					for(int i = 0; i < FRAME_NUM; i++){
 						finalElem[i] = elem[i] | medElem[i];
 					}
@@ -600,38 +603,47 @@ public:
 				if(cnt > REF) reliablePixelSet.at<uchar>(r, c) = 1;
 			}
 		}
-
+		cout << n << endl;
 		// 否则找出那些undecided pixels的联通分量
 		vector<ConnectedComponent> connComps;
 		findConnectedComponents(connComps, undecidedPixels);
 
-		// 统计每一个连通分量是reliable pixels多还是unreliable多（majority voting 多数同意，来做出不同的combine策略
+		// 统计每一个连通分量是reliable pixels多还是unreliable多（majority voting 多数同意），来做出不同的combine策略
 		for(unsigned int i = 0; i < connComps.size(); i++){
-			vector<Point> & CCPts = connComps[i].getCCPts();
+			vector<Point> & CCpts = connComps[i].getCCPts();
 			int cnt = 0; // 统计连通分量中有多少个reliable pixel
 			
-			for(unsigned int j = 0; j < CCPts.size(); j++){
-				if(reliablePixelSet.at<uchar>(CCPts[j]) == 1) cnt++;
+			for(unsigned int j = 0; j < CCpts.size(); j++){
+				if(reliablePixelSet.at<uchar>(CCpts[j]) == 1) cnt++;
 			}
 
 			// 如果reliable pixel多，则整个连通分量都当作reliable处理，取M的结果
 			if(cnt >= CCpts.size() - cnt){ 
-				for(unsigned int j = 0; j < CCPts.size(); j++){
+				for(unsigned int j = 0; j < CCpts.size(); j++){
 					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
 					Vec<uchar, FRAME_NUM> & medElem = medConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
 					finalElem = medElem;
 				}
 			}
-			// 否则整个CC都当作unreliable处理，去R的结果
+			// 否则整个CC都当作unreliable处理，取R的结果
 			else{
-				for(unsigned int j = 0; j < CCPts.size(); j++){
+				for(unsigned int j = 0; j < CCpts.size(); j++){
 					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
 					Vec<uchar, FRAME_NUM> & refElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
 					finalElem = refElem;
 				}
 			}
 		}
-		
+
+		consistentPixels[layer] = consistPixelSet;
+	}
+
+	// 由上下采样得到所有层的consistent pixels
+	void calConsistentPixelsAllLayer(vector<Mat> & refPyramid){
+		for(unsigned int layer = 0; layer < consistentPixels.size(); layer++){
+			if(layer == CONSIST_LAYER) continue;
+			resize(consistentPixels[CONSIST_LAYER], consistentPixels[layer], refPyramid[layer].size(), 0, 0, CV_INTER_LINEAR);  // CV_NEAREST
+		}
 	}
 };
 
@@ -755,9 +767,14 @@ public:
 		// 初始化Consistent pixel pyramid
 		consistPixelPyramid = ConsistentPixelSetPyramid(refPyramid->getImagePyramid().size());
 
-		// 算Consistent Pixels
+		// 算Consistent Pixels(CONSIST_LAYER的)
 		consistPixelPyramid.calConsistentPixelSet(CONSIST_LAYER, integralImageSet, integralMedianImg, threshold);
+
+		// reuse the indices of computed consistent pixels by upsampling and downsampling，把refPyramid传进去是为了知道每层的尺寸
+		consistPixelPyramid.calConsistentPixelsAllLayer(refPyramid->getImagePyramid());
 	}
+
+
 
 	void showImages(vector<Mat> Images){
 		int imageNum = Images.size();
@@ -778,15 +795,34 @@ FastBurstImagesDenoising FBID;
 int main(){
 	FBID.readBurstImages(fileDir);
 	//FBID.showImages(FBID.oriImageSet); 
-	//FBID.calPyramidSet();
-	//FBID.calHomographyFlowPyramidSet();
-	//FBID.consistentPixelSelection();
+	FBID.calPyramidSet();
+	FBID.calHomographyFlowPyramidSet();
+	FBID.consistentPixelSelection();
 
 	//Mat m(Size(3,3), CV_32FC2 , Scalar::all(0));
 	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
 	//elem[0]=1212.0f;
 	//elem[1]=326.0f;
 	//cout << m << endl;
+
+/*	vector<int> elem(20);	
+	for(int i = 0; i < 20; i++) elem[i] = (i + 1)*2;
+	elem[7] = 0;
+	elem[8] = 1;
+	elem[9] = 2;
+	elem[6] = 3;
+	random_shuffle(elem.begin(), elem.end());
+	for(int i = 0; i < 20; i++){
+		cout << elem[i] << " ";
+	}
+	cout << endl;
+	
+	//cout << elem.begin() << endl;
+	nth_element(elem.begin(), elem.begin() + 5, elem.end());
+	for(int i = 0; i < 10; i++){
+		cout << elem[i] << " ";
+	}
+	*/
 
 	system("pause");
 
