@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <queue>
 #include <stdio.h>
 #include <opencv2\core\core.hpp>     // 有Mat数据类型
 #include <opencv2\highgui\highgui.hpp>
@@ -443,7 +444,7 @@ public:
 class ConsistentPixelSetPyramid{
 	vector<Mat> consistentPixels;  // 这个相当于每层一个
 
-	// 并查集操作
+	/*// 并查集操作
 	uchar find(uchar x, uchar parent[]){
 		uchar r = x;
 		while(parent[r] != r) r = parent[r];
@@ -455,7 +456,7 @@ class ConsistentPixelSetPyramid{
 		uchar y = find(l, parent);
 		if(x < y) parent[y] = x;
 		else parent[x] = y;
-	}
+	}*/
 
 public:
 	ConsistentPixelSetPyramid(){}
@@ -463,8 +464,50 @@ public:
 		consistentPixels.resize(layerNum);
 	}
 
-	// 寻找连通分量(Two-Pass算法）			
+	// 使用BFS实现Flood-Fill算法
+	ConnectedComponent floodFill(int idx, int x0, int y0, Mat & undecidedPixels){
+ 		int dx[] = { -1, 0, 1, 0 };
+ 		int dy[] = { 0, 1, 0, -1 };
+ 		int x = x0, y = y0;
+ 		queue<Point> Q;										// 用于BFS, floodFill的实现
+ 		Point cur;
+ 		ConnectedComponent ans(idx);
+		ans.addPoint(Point(x0, y0));
+
+		while(!Q.empty()) Q.pop();
+		Q.push(Point(x0, y0));
+
+		// BFS,以当前点为中心，向四周搜索可以扩展的点（值为 0 即为可扩展）
+		while(!Q.empty()){
+			cur = Q.front(); Q.pop();
+			for (int i = 0; i < 4; i++){
+				x = cur.x + dx[i]; 
+				y = cur.y + dy[i];
+				// 判断越界和是否可扩展
+				if (x < 0 || x >= undecidedPixels.cols || y < 0 || y >= undecidedPixels.rows)
+					continue;								
+				if (undecidedPixels.at<uchar>(y, x) != 255) continue;
+
+				undecidedPixels.at<uchar>(y, x) = 127;		// 将此点标记为已确定
+				ans.addPoint(Point(x, y));					// 加入到联通块中
+				Q.push(Point(x, y));						// 加入到队列中，以便从此点开始扩展
+			}
+		}
+		return ans;											// 返回当前连通分量
+	}
+
+	// 寻找连通分量(Flood-Fill算法）	
 	void findConnectedComponents(vector<ConnectedComponent> & connComps, Mat & undecidedPixels){
+		int idx = 0;
+		for (int y = 0; y < undecidedPixels.rows; y++)
+			for (int x = 0; x < undecidedPixels.cols; x++)
+			if (undecidedPixels.at<uchar>(y, x) == 255){
+				connComps.push_back(floodFill(++idx, x, y, undecidedPixels));
+			}
+	}
+
+	// 寻找连通分量(Two-Pass算法）			
+	/*void findConnectedComponents(vector<ConnectedComponent> & connComps, Mat & undecidedPixels){
 		int idx = 1;
 		Mat labeled(undecidedPixels.size(), CV_8U, Scalar::all(0)); 
 
@@ -516,7 +559,7 @@ public:
 
 		// 两遍之后就得到了所有的Connected Component
 		cout << connComps.size() << endl;
-	}
+	}*/
 	
 	// 计算layer层的consistent pixels set
 	void calConsistentPixelSet(int layer, vector<Mat> & integralImageSet, Mat & integralMedianImg, const int thre){
@@ -530,7 +573,6 @@ public:
 		reliablePixelSet = Mat::zeros(integralMedianImg.rows - 1, integralMedianImg.cols - 1, CV_8U);
 		Mat undecidedPixels(consistPixelSet.rows, consistPixelSet.cols, CV_8U, Scalar::all(0));
 		
-		int n = 0;
 		// 计算reference-based 和 median-based consistent pixels
 		for(int r = 0; r < integralMedianImg.rows - 1; r++){   // 积分图比普通图行列各多一列
 			for(int c = 0; c < integralMedianImg.cols - 1; c++){
@@ -597,21 +639,42 @@ public:
 				// 如果ref frame属于median-based consistent pixels, 那么取M和R的并集				
 				Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
 				if(medElem[REF] == 1){
-					n++;
 					for(int i = 0; i < FRAME_NUM; i++){
 						finalElem[i] = elem[i] | medElem[i];
 					}
 				}
-				else undecidedPixels.at<uchar>(r, c) = 1;		
+				else undecidedPixels.at<uchar>(r, c) = 255;		
 
 				// 统计reliable pixels
 				if(cnt > REF) reliablePixelSet.at<uchar>(r, c) = 1;
 			}
 		}
-		cout << n << endl;
+
+		// 显示undecidedPixels
+		namedWindow("src", WINDOW_NORMAL);
+ 		imshow("src", undecidedPixels);
+ 		waitKey(0);
+
 		// 否则找出那些undecided pixels的联通分量
 		vector<ConnectedComponent> connComps;
 		findConnectedComponents(connComps, undecidedPixels);
+
+		// 此时，原来255的部分都被置为127
+		namedWindow("AfterProcess", WINDOW_NORMAL);
+		imshow("AfterProcess", undecidedPixels);
+		waitKey(0);
+
+		// 把找到的联通块画到图上
+		for (int i = 0; i < connComps.size(); i++){
+			uchar color = (i % 2 == 0) ? 100 : 200;						// 随机给一个颜色
+			vector<Point> & now = connComps[i].getCCPts();
+			for (int k = 0; k < now.size(); k++){
+				undecidedPixels.at<uchar>(now[k]) = color;
+			}
+		}
+		namedWindow("Component", WINDOW_NORMAL);
+ 		imshow("Component", undecidedPixels);
+		waitKey(0);
 
 		// 统计每一个连通分量是reliable pixels多还是unreliable多（majority voting 多数同意），来做出不同的combine策略
 		for(unsigned int i = 0; i < connComps.size(); i++){
@@ -931,13 +994,9 @@ public:
 					tempResult.at<Vec3f>(r, c) = meanRGBImg.at<Vec3f>(r, c) - 
 						var.at<double>(r, c) * (refTempImage.at<Vec3f>(r, c) - meanRGBImg.at<Vec3f>(r, c));
 				}
-			
 			tempResult.convertTo(tempResult, CV_8UC3);
 			temporalResult.push_back(tempResult);
 		}
-
-		
-
 
 	}
 
