@@ -66,6 +66,12 @@ class PyramidLayer{
 	Mat homoFlow;  // homography flow 矩阵
 	Mat consistImage;
 
+	vector<DMatch> matches; // 匹配结果
+	vector<DMatch> goodMatches;
+	vector<uchar> RANSACStatus;   // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
+	vector<Point2f> srcPts, dstPts; // src是refImage，dst是当前图片
+ 
+
 public:
 	PyramidLayer(){}
 	PyramidLayer(Mat & newImage, int _layer){
@@ -102,7 +108,7 @@ public:
 		calImageDescriptors();  // 计算当帧的特征向量和特征点
 
 		// 进行特征向量匹配
-		vector<DMatch> matches; // 匹配结果
+		matches.clear();
 		matcher->match(descriptors, refDescriptor, matches); // queryDescriptor, trainDescriptor
 		cout << "Matches Num: " << matches.size() << endl; // 这里的size和queryDescriptor的行数一样,为query的每一个向量都找了一个匹配向量
 		
@@ -117,7 +123,7 @@ public:
 		cout << "Max Distance: " << maxDist << endl;
 		cout << "Min Distance: " << minDist << endl;
 
-		vector<DMatch> goodMatches;
+		goodMatches.clear();
 		for(unsigned int i = 0; i < matches.size(); i++){
 			if(matches[i].distance < minDist + 0.38 * (maxDist - minDist)){
 				goodMatches.push_back(matches[i]);
@@ -136,7 +142,7 @@ public:
 		// 计算基础矩阵F(用RANSAC方法)：表示的是某个物体或场景各特征在不同的两张照片对应特征点图像坐标的关系，x'的转置乘以F，再乘以x的结果为0
 		// RANSAC为RANdom Sample Consensus的缩写，它是根据一组包含异常数据的样本数据集，计算出数据的数学模型参数，得到有效样本数据的算法
 		Mat fundMat;
-		vector<uchar> RANSACStatus;   // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
+		RANSACStatus.clear(); // 这个变量用于存储RANSAC后每个点的状态,值为0（错误匹配,野点）,1 
 		findFundamentalMat(curMatchPts, refMatchPts, RANSACStatus, FM_RANSAC);
 			
 		// 使用RANSAC方法计算基础矩阵后可以得到一个status向量，用来删除错误的匹配（之前已经筛过一遍了，所以不是很有效果）
@@ -221,8 +227,7 @@ public:
 				int colEnd = (c + 1) * nodeLength - 1;
 				if(c == edgeLen - 1) colEnd = image.cols - 1;
 
-				vector<Point2f> srcPts, dstPts; // src是refImage，dst是当前图片
-				srcPts.clear();
+				srcPts.clear();  // src是refImage，dst是当前图片
 				dstPts.clear();
 				for(int row = rowStart; row <= rowEnd; row++)   // y
 					for(int col = colStart; col <= colEnd; col++)  // x
@@ -271,7 +276,7 @@ public:
 		//waitKey(0);
 	}
 
-	Mat & getConsistImage(){
+	Mat getConsistImage(){
 		return consistImage;
 	}
 
@@ -438,12 +443,6 @@ public:
 class ConsistentPixelSetPyramid{
 	vector<Mat> consistentPixels;  // 这个相当于每层一个
 
-public:
-	ConsistentPixelSetPyramid(){}
-	ConsistentPixelSetPyramid(int layerNum){
-		consistentPixels.resize(layerNum);
-	}
-
 	// 并查集操作
 	uchar find(uchar x, uchar parent[]){
 		uchar r = x;
@@ -456,6 +455,12 @@ public:
 		uchar y = find(l, parent);
 		if(x < y) parent[y] = x;
 		else parent[x] = y;
+	}
+
+public:
+	ConsistentPixelSetPyramid(){}
+	ConsistentPixelSetPyramid(int layerNum){
+		consistentPixels.resize(layerNum);
 	}
 
 	// 寻找连通分量(Two-Pass算法）			
@@ -576,15 +581,16 @@ public:
 					- integralMedianImg.at<int>(endR+1, startC) + integralMedianImg.at<int>(startR, startC);
 				int aveMedPixel = pixelMedSum / pixelNum;
 
-				Vec<uchar, FRAME_NUM> & medElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
+				Vec<uchar, FRAME_NUM> & medElem = medConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
 				int cnt = 0; // 记录有多少个median-based consistent pixels
 				for(int i = 0; i < FRAME_NUM; i++){
 					int pixelSum = integralImageSet[i].at<int>(endR+1, endC+1) - integralImageSet[i].at<int>(startR, endC+1)
 						- integralImageSet[i].at<int>(endR+1, startC) + integralImageSet[i].at<int>(startR, startC);
 					int avePixel = pixelSum / pixelNum;
-					if(abs(aveMedPixel - avePixel) < thre)
+					if(abs(aveMedPixel - avePixel) < thre){
 						medElem[i] = 1;
 						cnt++;
+					}	
 				}
 
 				/* -----结合reference-based 和 median-based 的结果----- */
@@ -644,6 +650,10 @@ public:
 			resize(consistentPixels[CONSIST_LAYER], consistentPixels[layer], refPyramid[layer].size(), 0, 0, CV_INTER_LINEAR);  // CV_NEAREST
 		}
 	}
+
+	vector<Mat> & getConsistentPixelPyramid(){
+		return consistentPixels;
+	}
 };
 
 class FastBurstImagesDenoising{
@@ -653,6 +663,7 @@ public:
 	Pyramid* refPyramid;                           // 参考图片的金字塔
 	ConsistentPixelSetPyramid consistPixelPyramid; // 存储consistent pixel
 	Mat grayMedianImg;                             // CONSIST_LAYER的中位图（灰度图） 
+	vector<Mat> temporalResult;                    // temporal fusion的结果图
 
 	Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
 
@@ -745,7 +756,7 @@ public:
 			curFrame->calConsistImage();
 			
 			// 转灰度图
-			Mat & consistImg = curFrame->getConsistImage();
+			Mat consistImg = curFrame->getConsistImage();
 			cvtColor(consistImg, consistGrayImageSet[frame], CV_RGB2GRAY);
 
 			// 求所有consistent 灰度图的积分图(原图行列各加1，第一行第一列均为0）
@@ -784,10 +795,11 @@ public:
 	// 第三步：融合得到最后的去噪图像
 	void pixelsFusion(){
 
-		/* -----计算噪声方差----- */
-		// 取出ref image并转成灰度图像
 		vector<Mat> refImagePyramid = refPyramid->getImagePyramid();
 		int layersNum = refImagePyramid.size();
+
+		/* -----计算噪声方差----- */
+		// 取出ref image并转成灰度图像
 		Mat refGrayImg;
 		cvtColor(refImagePyramid[layersNum - 1], refGrayImg, CV_RGB2GRAY);
 
@@ -826,8 +838,105 @@ public:
 		double noiseVar = sum(diffImg)[0] / cnt;  // sigma2
 		
 
-		//calNoiseVar();
+		/* -----进行temporal fusion----- */
+		vector<Mat> & consistentPixelPyramid = consistPixelPyramid.getConsistentPixelPyramid();
+		for(int layer = 0; layer < layersNum; layer++){
+			
+			// 取出这一层的consistent pixels集
+			consistPixelSet = consistentPixelPyramid[layer];
 
+			vector<Mat> consistImgSet;
+			Mat consistGrayImgSet(consistPixelSet.size(), CV_8UC(FRAME_NUM), Scalar::all(0));
+			Mat meanImg(consistPixelSet.size(), CV_8U, Scalar::all(0));
+			Mat meanRGBImg(consistPixelSet.size(), CV_8UC3, Scalar::all(0));
+			Mat tVar(consistPixelSet.size(), CV_64F, Scalar::all(0));
+			Mat var(consistPixelSet.size(), CV_64F, Scalar::all(0));
+
+			// 得到consist gray image set (col * row * 10) 和 consistImgSet(vector, col * row * 3 * 10) 彩色
+			if(layer != CONSIST_LAYER)
+				for(int frame = 0; frame < FRAME_NUM; frame++){
+					PyramidLayer* curFrame = imagePyramidSet[frame]->getPyramidLayer(layer);
+					Mat consistImg;
+					if(frame == REF){
+						consistImg = curFrame->getImage();
+					}
+					else{
+						curFrame->calConsistImage();
+						consistImg = curFrame->getConsistImage();
+					}
+					consistImgSet.push_back(consistImg);
+					Mat consistGrayImg;
+					cvtColor(consistImg, consistGrayImg, CV_RGB2GRAY);
+					for(int r = 0; r < consistImg.rows; r++)
+						for(int c = 0; c < consistImg.cols; c++){
+							consistGrayImgSet.at<Vec<uchar, FRAME_NUM>>(r, c)[frame] = consistGrayImg.at<uchar>(r, c);
+						}
+				}
+			
+			// 点乘，将不是consistent pixel的地方置零
+			consistGrayImgSet = consistGrayImgSet.mul(consistPixelSet);
+
+			
+			for(int r = 0; r < consistPixelSet.rows; r++)
+				for(int c = 0; c < consistPixelSet.cols; c++){
+					// 计算平均图像（灰度）
+					meanImg.at<uchar>(r, c) = sum(consistGrayImgSet.at<Vec<uchar, FRAME_NUM>>(r, c))[0] 
+						/ sum(consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c))[0];
+
+					// 计算sigmat方，即每个像素点consistent pixels的方差
+					Vec<uchar, FRAME_NUM> elem = consistGrayImgSet.at<Vec<uchar, FRAME_NUM>>(r, c);
+					Vec<uchar, FRAME_NUM> & consistVector = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c);
+					
+					for(int i = 0; i < FRAME_NUM; i++){
+						if(consistVector[i] > 0)  elem[i] = abs(elem[i] - meanImg.at<uchar>(r, c));
+					}
+					elem = elem.mul(elem);
+					tVar.at<double>(r, c) = (double)sum(elem)[0] / (double)sum(consistPixelSet.at<Vec<uchar, FRAME_NUM>>(r, c))[0]; 
+
+					// 计算sigmac方
+					tVar.at<double>(r, c) = max((double)0, tVar.at<double>(r, c) - noiseVar);
+					
+					// 计算sigmac2/(sigmac2 + sigma2)
+					var.at<double>(r, c) = tVar.at<double>(r, c) / (tVar.at<double>(r, c) + noiseVar);
+				}
+
+			// 得到row*col*3 * 10 的consistPixelsChannels（将每帧的consist map分开，并变成3通道（rgb））
+			vector<Mat> tempConsistPixelsChannels;             // row*col*1 * 10
+			vector<Mat> consistPixelsChannels;                 // row*col*3 * 10
+			Mat sumImg(consistPixelSet.size(), CV_32SC3, Scalar::all(0));
+			Mat sumConsistImg(consistPixelSet.size(), CV_8UC3, Scalar::all(0));
+			split(consistPixelSet, tempConsistPixelsChannels); // 将consistPixelSet 10个通道分开
+			
+			for(int frame = 0; frame < FRAME_NUM; frame++){
+				vector<Mat> tempChannels;                      // row*col*1 * 3
+				for(int i = 0; i < 3; i++) tempChannels.push_back(tempConsistPixelsChannels[frame]);
+				merge(tempChannels, consistPixelsChannels[frame]);
+
+				// 求sumImg
+				consistImgSet[frame] = consistImgSet[frame].mul(consistPixelsChannels[frame]);
+				sumImg += consistImgSet[frame];
+				sumConsistImg += consistPixelsChannels[frame];
+			}
+
+			// 求meanRGBImg
+			meanRGBImg = sumImg / sumConsistImg;   // 点除
+
+			// 求融合后的结果
+			Mat tempResult(meanRGBImg.size(), CV_32FC3);
+			Mat refTempImage = refPyramid->getPyramidLayer(layer)->getImage();
+			refTempImage.convertTo(refTempImage, CV_32FC3);
+			meanRGBImg.convertTo(meanRGBImg, CV_32FC3);
+			for(int r = 0; r < meanRGBImg.rows; r++)
+				for(int c = 0; c < meanRGBImg.cols; c++){
+					tempResult.at<Vec3f>(r, c) = meanRGBImg.at<Vec3f>(r, c) - 
+						var.at<double>(r, c) * (refTempImage.at<Vec3f>(r, c) - meanRGBImg.at<Vec3f>(r, c));
+				}
+			
+			tempResult.convertTo(tempResult, CV_8UC3);
+			temporalResult.push_back(tempResult);
+		}
+
+		
 
 
 	}
@@ -855,21 +964,45 @@ int main(){
 	FBID.calHomographyFlowPyramidSet();
 	FBID.consistentPixelSelection();
 	FBID.pixelsFusion();
+	FBID.showImages(FBID.temporalResult);
 
 	//Mat m(Size(3,3), CV_32FC2 , Scalar::all(0));
 	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
 	//elem[0]=1212.0f;
 	//elem[1]=326.0f;
 	//cout << m << endl;
-
-	/*Mat m(Size(3,3), CV_8U , Scalar::all(0));
-	int idx = 1;
+	/*int sz[] = {3, 3};
+	Mat m(2, sz, CV_8UC3, Scalar::all(2));
+	m.convertTo(m, CV_32FC3);
+	Mat p(2, sz, CV_8UC3, Scalar::all(6));
+	p.convertTo(p, CV_32FC3);
+	p.at<Vec3f>(0,0)[0] = 1.534;
+	cout << p << endl;
+	p.convertTo(p, CV_8UC3);
+	cout << p << endl;*/
+	//cout << 2*(m.at<Vec3f>(1,1)-p.at<Vec3f>(1,1)) << endl; 
+	//cout << m << endl;
+	//cout << m.at<>(0, 0) << endl;
+	//cout << m.mul(p) << endl;
+	/*int idx = 1;
 	for(int i = 0; i < 3; i++){
 		for(int j = 0; j < 3; j++){
-			m.at<uchar>(i, j) = idx++;
+			m.at<Vec2f>(i, j)[0] = idx++;
+			m.at<Vec2f>(i, j)[1] = idx++;
 		}
 	}
-	Mat tmp_m, tmp_sd;
+	Mat a(Size(3,3), CV_32FC2 , Scalar::all(0));
+	for(int i = 0; i < 3; i++){
+		for(int j = 0; j < 3; j++){
+			a.at<Vec2f>(i, j)[0] = idx++;
+			a.at<Vec2f>(i, j)[1] = idx++;
+		}
+	}
+	Vec2f elem = a.at<Vec2f>(2, 2);
+	elem[0] = 1;
+
+	cout << a << endl << m << endl << 	elem << endl;*/
+	/*Mat tmp_m, tmp_sd;
 	double a, sd;
 	meanStdDev(m, tmp_m, tmp_sd);
 	a = tmp_m.at<double>(0,0);  
