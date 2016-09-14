@@ -444,6 +444,8 @@ public:
 class ConsistentPixelSetPyramid{
 	vector<Mat> consistentPixels;  // 这个相当于每层一个
 
+	
+	vector<Mat> channels;			// 用于形态学过滤时，分离各帧图像
 	/*// 并查集操作
 	uchar find(uchar x, uchar parent[]){
 		uchar r = x;
@@ -462,6 +464,31 @@ public:
 	ConsistentPixelSetPyramid(){}
 	ConsistentPixelSetPyramid(int layerNum){
 		consistentPixels.resize(layerNum);
+	}
+
+	// 形态学过滤器，周围3*3内值为 1 的数量 <5 时返回0
+	int checkMajority(const Mat& src, const int row, const int col) {
+		int cnt = 0;
+		int startR = row - 1, startC = col - 1, endR = row + 1, endC = col + 1;
+		for (int r = startR; r <= endR; r++) {
+			for (int c = startC; c <= endC; c++) {
+				if (r == row && c == col) continue;
+				if (r < 0 || r >= src.rows || c < 0 || c >= src.cols) continue;
+				if (src.at<uchar>(r, c) == 1) cnt++;
+			}
+		}
+		if(cnt < 5) return 0;					
+		return 1;
+	}
+
+	// 形态学filter
+	void morphMajority(const Mat & src, Mat & dst){
+		Mat temp = src.clone();
+		for (int row = 0; row < dst.rows; row++) {
+			for (int col = 0; col < dest.cols; col++) {
+				dst.at<uchar>(row, col) = checkMajority(temp, row, col);
+			}
+		}
 	}
 
 	// 使用BFS实现Flood-Fill算法
@@ -651,15 +678,15 @@ public:
 		}
 
 		// 显示undecidedPixels
-		namedWindow("src", WINDOW_NORMAL);
+		/*namedWindow("src", WINDOW_NORMAL);
  		imshow("src", undecidedPixels);
- 		waitKey(0);
+ 		waitKey(0);*/
 
 		// 否则找出那些undecided pixels的联通分量
 		vector<ConnectedComponent> connComps;
 		findConnectedComponents(connComps, undecidedPixels);
 
-		// 此时，原来255的部分都被置为127
+		/*// 此时，原来255的部分都被置为127
 		namedWindow("AfterProcess", WINDOW_NORMAL);
 		imshow("AfterProcess", undecidedPixels);
 		waitKey(0);
@@ -674,7 +701,7 @@ public:
 		}
 		namedWindow("Component", WINDOW_NORMAL);
  		imshow("Component", undecidedPixels);
-		waitKey(0);
+		waitKey(0);*/
 
 		// 统计每一个连通分量是reliable pixels多还是unreliable多（majority voting 多数同意），来做出不同的combine策略
 		for(unsigned int i = 0; i < connComps.size(); i++){
@@ -688,20 +715,46 @@ public:
 			// 如果reliable pixel多，则整个连通分量都当作reliable处理，取M的结果
 			if(cnt >= CCpts.size() - cnt){ 
 				for(unsigned int j = 0; j < CCpts.size(); j++){
-					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
-					Vec<uchar, FRAME_NUM> & medElem = medConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
+					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM> >(CCpts[j]);
+					Vec<uchar, FRAME_NUM> & medElem = medConsistPixelSet.at<Vec<uchar, FRAME_NUM> >(CCpts[j]);
 					finalElem = medElem;
 				}
 			}
 			// 否则整个CC都当作unreliable处理，取R的结果
 			else{
 				for(unsigned int j = 0; j < CCpts.size(); j++){
-					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
-					Vec<uchar, FRAME_NUM> & refElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM>>(CCpts[j]);
+					Vec<uchar, FRAME_NUM> & finalElem = consistPixelSet.at<Vec<uchar, FRAME_NUM> >(CCpts[j]);
+					Vec<uchar, FRAME_NUM> & refElem = refConsistPixelSet.at<Vec<uchar, FRAME_NUM> >(CCpts[j]);
 					finalElem = refElem;
 				}
 			}
 		}
+
+		// 形态学过滤，morphological(majority) filter
+		for (int k = 0; k < FRAME_NUM; k++){
+			int cnt = 0;
+			for (int i = 0; i < consistPixelSet.rows; i++)
+				for (int j = 0; j < consistPixelSet.cols; j++)
+					cnt += consistPixelSet.at<Vec<uchar, FRAME_NUM> >(Point(j, i))[k];
+			printf("Before: Frame: %d    cnt = %d\n", k, cnt);
+		}
+
+		channels.clear();
+		split(consistPixelSet, channels);
+
+		for (int i = 0; i < channels.size(); i++){
+			morphMajority(channels[i], channels[i]);
+		}
+		merge(channels, consistPixelSet);
+
+		for (int k = 0; k < FRAME_NUM; k++){
+			int cnt = 0;
+			for (int i = 0; i < consistPixelSet.rows; i++)
+			for (int j = 0; j < consistPixelSet.cols; j++)
+				cnt += consistPixelSet.at<Vec<uchar, FRAME_NUM> >(Point(j, i))[k];
+			printf("After: Frame: %d    cnt = %d\n", k, cnt);
+		}
+
 
 		consistentPixels[layer] = consistPixelSet;
 	}
