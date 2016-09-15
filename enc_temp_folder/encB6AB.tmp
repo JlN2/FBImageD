@@ -13,7 +13,7 @@
 using namespace std;
 using namespace cv;
 
-const string fileDir  = "SrcData\\Data\\Bookshelf_2\\";
+const string fileDir  = "SrcData\\Data\\Buildin_1\\";
 const string resultDir = "Result\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
