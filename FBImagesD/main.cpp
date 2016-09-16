@@ -1105,7 +1105,7 @@ public:
 			
 		}
 
-		imwrite(resultDir + "temporal" + imageFormat, temporalResult[layersNum]);
+		imwrite(resultDir + "temporal" + imageFormat, temporalResult[layersNum - 1]);
 
 		/* -----½øÐÐmulti-scale fusion----- */
 		for(int layer = 1; layer < layersNum; layer++){
@@ -1149,7 +1149,7 @@ public:
 			temporalResult[layer] = tempResult.clone();
 		}
 
-		imwrite(resultDir + "temporalandmultiscale" + imageFormat, temporalResult[layersNum]);
+		imwrite(resultDir + "temporalandmultiscale" + imageFormat, temporalResult[layersNum - 1]);
 		
 	}
 
