@@ -1105,6 +1105,8 @@ public:
 			
 		}
 
+		imwrite(resultDir + "temporal" + imageFormat, temporalResult[layersNum]);
+
 		/* -----进行multi-scale fusion----- */
 		for(int layer = 1; layer < layersNum; layer++){
 			// 通过bilinear upscale来scale上一层的图像
@@ -1142,10 +1144,12 @@ public:
 					float w = omega.at<float>(r, c);
 					tempResult.at<Vec3f>(r, c) = p * spatialFusion.at<Vec3f>(r, c) + (1 - p) * formerLayerImg.at<Vec3f>(r, c);
 					tempResult.at<Vec3f>(r, c) = w * tempResult.at<Vec3f>(r, c) + (1 - w) * formerLayerImg.at<Vec3f>(r, c);
-				}
+				} 
 			tempResult.convertTo(tempResult, CV_8UC3);
 			temporalResult[layer] = tempResult.clone();
 		}
+
+		imwrite(resultDir + "temporalandmultiscale" + imageFormat, temporalResult[layersNum]);
 		
 	}
 
@@ -1199,6 +1203,7 @@ public:
 					Scalar m, sd; // 均值和标准差
 					meanStdDev(spatialPts, m, sd);
 					double var = max((double)0, sd[0] * sd[0] - noiseVar);
+					var = var / (var + noiseVar);
 
 					spatialFusion.at<Vec3f>(r, c) = sum / 5 + var * (spatialFusion.at<Vec3f>(r, c) - sum / 5);
 
