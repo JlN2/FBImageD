@@ -7,9 +7,11 @@
 #include <opencv2\highgui\highgui.hpp>
 #include <opencv2\imgproc\imgproc.hpp>
 #include <opencv2\opencv.hpp>
+#include <opencv2\legacy\legacy.hpp>
 #include <opencv2\features2d\features2d.hpp>
 #include <opencv2\nonfree\features2d.hpp>
 #include <math.h>
+#define M_PI 3.141592653589793238
 using namespace std;
 using namespace cv;
 
@@ -20,7 +22,7 @@ const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
 const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
 const int CONSIST_LAYER = 0;
-const int MAXIDX = 500; // 找连通分量时，并查集最大下标值
+//const int MAXIDX = 500; // 找连通分量时，并查集最大下标值
 
 class ImageNode{
 	vector<int> matchedPts;
@@ -311,7 +313,7 @@ public:
 		int cols = Image.cols ;
 		int rows = Image.rows;
 		int layerNum = 1;
-		while(cols > 400 || rows > 400){    // 计算这个Pyramid有几层，高斯金字塔最粗糙层image的长边不比400pixels大(文中说）
+		while(cols > 400 && rows > 400){    // 计算这个Pyramid有几层，高斯金字塔最粗糙层image的长边不比400pixels大(文中说）
 			cols = cols >> 1;
 			rows = rows >> 1;
 			//printf("Col Num: %d, Row Num: %d\n", cols, rows);
@@ -798,6 +800,8 @@ public:
 
 	Mat refConsistPixelSet, medConsistPixelSet, consistPixelSet;   // 记录consistent pixel
 
+	double noiseVar;                               // 噪声方差
+
 
 	/* 在第三步用到：得到row*col*3 * 10 的consistPixelsChannels（将每帧的consist map分开，并变成3通道（rgb）） */
 	vector<Mat> tempConsistPixelsChannels;             // row*col*1 * 10
@@ -810,6 +814,10 @@ public:
 		for(int i = 0; i < FRAME_NUM; i++){
 			sprintf_s(index, "%d", i);
 			img = imread(fileDir + string(index) + imageFormat);
+			if(img.data == false){
+				printf("Cannot Find Img.\n");
+				return;
+			}
 			oriImageSet.push_back(img);
 		}
 	}
@@ -835,8 +843,8 @@ public:
 		vector<KeyPoint> & refKpoint = refpLayer->getKeypoints();
 
 		// BruteForce和FlannBased是opencv二维特征点匹配常用的两种办法，BF找最佳，比较暴力，Flann快，找近似，但是uchar类型描述子（BRIEF）只能用BF
-		Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create( "BruteForce" ); 
-		
+		//Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create( "BruteForce" ); 
+		Ptr<DescriptorMatcher> matcher = new BruteForceMatcher<L2<float>>;
 		
 		for(int frame = 0; frame < FRAME_NUM; frame++){
 
@@ -935,6 +943,9 @@ public:
 		vector<Mat> refImagePyramid = refPyramid->getImagePyramid();
 		int layersNum = refImagePyramid.size();
 
+		vector<Mat> numOfInliersAllLayer;    // multi-scale fusion时要用到
+		numOfInliersAllLayer.resize(layersNum);
+
 		/* -----计算噪声方差----- */
 		// 取出ref image并转成灰度图像
 		Mat refGrayImg;
@@ -972,7 +983,7 @@ public:
 				
 			}
 		diffImg = diffImg.mul(diffImg);
-		double noiseVar = sum(diffImg)[0] / cnt;  // sigma2
+		noiseVar = sum(diffImg)[0] / cnt;  // sigma2
 		
 
 		/* -----进行temporal fusion----- */
@@ -1009,7 +1020,6 @@ public:
 					}
 			}
 			
-			
 			// 点乘，将不是consistent pixel的地方置零
 			consistGrayImgSet = consistGrayImgSet.mul(consistPixelSet);
 
@@ -1042,14 +1052,15 @@ public:
 					//cout << "( " << r << ", " << c << " )  sigmat2: " << tVar.at<double>(r, c) << endl;
 					
 					// 计算sigmac方
-					tVar.at<double>(r, c) = max((double)0, tVar.at<double>(r, c) - noiseVar);
+					var.at<double>(r, c) = max((double)0, tVar.at<double>(r, c) - noiseVar);
 
 					// 计算sigmac2/(sigmac2 + sigma2)
-					var.at<double>(r, c) = tVar.at<double>(r, c) / (tVar.at<double>(r, c) + noiseVar);
+					var.at<double>(r, c) = var.at<double>(r, c) / (var.at<double>(r, c) + noiseVar);
 				}
 				
 			// 得到row*col*3 * 10 的consistPixelsChannels（将每帧的consist map分开，并变成3通道（rgb））
 			tempConsistPixelsChannels.clear();             // row*col*1 * 10
+			consistPixelsChannels.clear();
 			consistPixelsChannels.resize(FRAME_NUM);                 // row*col*3 * 10
 			Mat sumImg(consistPixelSet.size(), CV_32SC3, Scalar::all(0));
 			Mat sumConsistImg(consistPixelSet.size(), CV_8UC3, Scalar::all(0));
@@ -1086,10 +1097,167 @@ public:
 			temporalResult.push_back(tempResult);
 			//imshow("result", tempResult);
 			//waitKey(0);
+
+			// 计算number of inliers （multi-scale fusion时要用到）
+			if(layer != 0){
+				calNumOfInlierPerPixel(numOfInliersAllLayer[layer], tVar, consistGrayImgSet, layer);
+			}
+			
 		}
 
 		/* -----进行multi-scale fusion----- */
+		for(int layer = 1; layer < layersNum; layer++){
+			// 通过bilinear upscale来scale上一层的图像
+			Mat formerLayerImg;
+			resize(temporalResult[layer - 1], formerLayerImg, temporalResult[layer].size(), 0, 0, CV_INTER_LINEAR);
+			formerLayerImg.convertTo(formerLayerImg, CV_32FC3);
 
+			// 计算textureness probalitity ptex
+			Mat pTex;
+			calPtex(pTex, layer);
+
+			// 计算omega w = sqrt(m/FRAME_NUM)
+			Mat omega;
+			calOmega(omega, numOfInliersAllLayer[layer], layer);
+
+			// 标记那些ptex > 0.01 的点
+			Mat isTex(pTex.size(), CV_8U);
+			for(int r = 0; r < pTex.rows; r++)
+				for(int c = 0; c < pTex.cols; c++){
+					isTex.at<uchar>(r, c) = (pTex.at<float>(r, c) > 0.01) * 255;
+				}
+			//imshow("texture", isTex);
+			//waitKey(0);
+			
+			// 计算f(xs) directional spatial pixel fusion （只在ptex>0.01的点进行）
+			Mat spatialFusion = temporalResult[layer].clone();
+			calSpatialFusion(spatialFusion, isTex);
+
+			// 替换temporal fusion result为ptex * f(xs) + (1 - ptex) * formerLayer
+			// 再替换为 w * xs + (1 - w) * formerLayer，得到图像融合的结果
+			Mat tempResult(spatialFusion.size(), CV_32FC3, Scalar::all(0));
+			for(int r = 0; r < pTex.rows; r++)
+				for(int c = 0; c < pTex.cols; c++){
+					float p = pTex.at<float>(r, c);
+					float w = omega.at<float>(r, c);
+					tempResult.at<Vec3f>(r, c) = p * spatialFusion.at<Vec3f>(r, c) + (1 - p) * formerLayerImg.at<Vec3f>(r, c);
+					tempResult.at<Vec3f>(r, c) = w * tempResult.at<Vec3f>(r, c) + (1 - w) * formerLayerImg.at<Vec3f>(r, c);
+				}
+			tempResult.convertTo(tempResult, CV_8UC3);
+			temporalResult[layer] = tempResult.clone();
+		}
+		
+	}
+
+	void getSpatialInfo(Vec<int, 5> & spatialPts, Vec3f & sum, int deltar[], int deltac[], int r, int c, Mat & spatialFusion, Mat & graySpatialFusion){
+		for(int i = 0; i < 5; i++){
+			sum += spatialFusion.at<Vec3f>(r+deltar[i], c+deltac[i]);
+			spatialPts[i] = (int)graySpatialFusion.at<uchar>(r+deltar[i], c+deltac[i]);
+		}
+	}
+	
+	// 进行Spatial Fusion
+	void calSpatialFusion(Mat & spatialFusion, Mat & isTex){
+		Mat graySpatialFusion;
+		cvtColor(spatialFusion, graySpatialFusion, CV_RGB2GRAY);
+		spatialFusion.convertTo(spatialFusion, CV_32FC3);
+
+		// 计算梯度，找出most probable edge
+		Mat grad_x, grad_y;
+		Sobel(graySpatialFusion, grad_x, spatialFusion.depth(), 1, 0);
+		Sobel(graySpatialFusion, grad_y, spatialFusion.depth(), 0, 1);
+		
+		for(int r = 2; r < spatialFusion.rows - 2; r++)
+			for(int c = 2; c < spatialFusion.cols - 2; c++){
+				float angle = atan(grad_y.at<float>(r, c) / grad_x.at<float>(r, c));
+				if(isTex.at<uchar>(r, c) == 255){
+					Vec3f sum;
+					for(int i = 0; i < 3; i++) sum[i] = 0;
+					Vec<int, 5> spatialPts;
+
+					if(angle < M_PI / 8 && angle >= - M_PI / 8){  
+						int deltar[] = { -2, -1, 0, 1, 2 };
+						int deltac[] = { 0, 0, 0, 0, 0 };
+						getSpatialInfo(spatialPts, sum, deltar, deltac, r, c, spatialFusion, graySpatialFusion);	
+					}
+					else if(angle >= M_PI / 8 && angle < M_PI * 3 / 8){
+						int deltar[] = { -2, -1, 0, 1, 2 };
+						int deltac[] = { -2, -1, 0, 1, 2 };
+						getSpatialInfo(spatialPts, sum, deltar, deltac, r, c, spatialFusion, graySpatialFusion);
+					}
+					else if(angle >= -M_PI * 3 / 8 && angle < -M_PI / 8){
+						int deltar[] = { -2, -1, 0, 1, 2 };
+						int deltac[] = { 2, 1, 0, -1, -2 };
+						getSpatialInfo(spatialPts, sum, deltar, deltac, r, c, spatialFusion, graySpatialFusion);
+					}
+					else{
+						int deltar[] = { 0, 0, 0, 0, 0 };
+						int deltac[] = { -2, -1, 0, 1, 2 };
+						getSpatialInfo(spatialPts, sum, deltar, deltac, r, c, spatialFusion, graySpatialFusion);	
+					}
+
+					Scalar m, sd; // 均值和标准差
+					meanStdDev(spatialPts, m, sd);
+					double var = max((double)0, sd[0] * sd[0] - noiseVar);
+
+					spatialFusion.at<Vec3f>(r, c) = sum / 5 + var * (spatialFusion.at<Vec3f>(r, c) - sum / 5);
+
+				}
+			}
+	}
+
+	// 计算layer层的temporal fusion结果的每一个像素内点的个数   |xt - x^| < 3sigmat
+	void calNumOfInlierPerPixel(Mat & numOfInlier, Mat & tVar, Mat & consistGrayImgSet, int layer){
+		Mat temporalImg = temporalResult[layer];
+		Mat temporalGrayImg;
+		cvtColor(temporalImg, temporalGrayImg, CV_RGB2GRAY);
+
+		numOfInlier = Mat::zeros(temporalImg.size(), CV_8U);
+		
+		for(int r = 0; r < numOfInlier.rows; r++)
+			for(int c = 0; c < numOfInlier.cols; c++){
+				for(int f = 0; f < FRAME_NUM; f++){
+					double diff = (double)abs(consistGrayImgSet.at<Vec<uchar, FRAME_NUM>>(r, c)[f] - temporalGrayImg.at<uchar>(r, c));
+					if(diff < 3 * tVar.at<double>(r, c))
+						numOfInlier.at<uchar>(r, c)++;
+				}
+			}
+	}
+
+	// 计算layer层的temporal fusion结果的omega w = sqrt(m/FRAME_NUM)
+	void calOmega(Mat & omega, Mat & numOfInlier, int layer){
+		omega = Mat::zeros(temporalResult[layer].size(), CV_32F);
+
+		for(int r = 0; r < omega.rows; r++)
+			for(int c = 0; c < omega.cols; c++){
+				omega.at<float>(r, c) = sqrt((float)numOfInlier.at<uchar>(r, c) / (float)FRAME_NUM);
+			}
+	}
+
+	// 计算layer层的temporal fusion结果的textureness probalitity Ptex
+	void calPtex(Mat & pTex, int layer){
+		
+		Mat temporalImg = temporalResult[layer];
+		pTex = Mat::zeros(temporalImg.size(), CV_32F);
+
+		Mat temporalGrayImg;
+		cvtColor(temporalImg, temporalGrayImg, CV_RGB2GRAY);
+		int dx[] = { -1, 0, 1, 0 };
+ 		int dy[] = { 0, 1, 0, -1 };
+		for(int y = 0; y < temporalImg.rows; y++)
+			for(int x = 0; x < temporalImg.cols; x++){
+				// 求max absolute difference
+				float maxAbsDiff = 0;
+				for(int i = 0; i < 4; i++){
+					int x_ = x + dx[i];
+					int y_ = y + dy[i];
+					if(x_ < 0 || y_ < 0 || x_ >= temporalImg.cols || y_ >= temporalImg.rows) continue;
+					float absDiff = abs((float)temporalGrayImg.at<uchar>(y_, x_) - (float)temporalGrayImg.at<uchar>(y, x));
+					maxAbsDiff = max(absDiff, maxAbsDiff);
+				}
+				float p = 1 / (1 + exp(-5 * (maxAbsDiff / sqrt(noiseVar) - 3)));
+				pTex.at<float>(y, x) = p;
+			}
 	}
 
 	void showImages(vector<Mat> Images){
@@ -1116,68 +1284,6 @@ int main(){
 	FBID.consistentPixelSelection();
 	FBID.pixelsFusion();
 	FBID.showImages(FBID.temporalResult);
-
-	//Mat m(Size(3,3), CV_8UC(10) , Scalar::all(2));
-	//Vec2f& elem = m.at<Vec2f>( 1 , 2 );// or m.at<Vec2f>( Point(col,row) );
-	//elem[0]=1212.0f;
-	//elem[1]=326.0f;
-	//cout << m << endl;
-	Mat m(3, 3, CV_8UC(10), Scalar::all(0));
-	//m.convertTo(m, CV_32FC3);
-	Mat p(3, 3, CV_32SC(10), Scalar::all(0));
-	//p.convertTo(p, CV_32FC3);
-	p.at<Vec<int, 10> >(0,0)[0] = 1;
-	//cout << p.at<Vec<uchar, 10> >(0,0)[0] << endl;
-	//cout << m << endl;
-	//p.convertTo(p, CV_8UC3);
-	//cout << p << endl;
-	//cout << p.mul(m) << endl;
-	//cout << 2*(m.at<Vec3f>(1,1)-p.at<Vec3f>(1,1)) << endl; 
-	//cout << m << endl;
-	//cout << m.at<>(0, 0) << endl;
-	//cout << m.mul(p) << endl;
-	int idx = 1;
-	for(int i = 0; i < 3; i++){
-		for(int j = 0; j < 3; j++){
-			m.at<Vec<uchar, 10>>(i, j)[0] = idx++;
-			m.at<Vec<uchar, 10>>(i, j)[1] = idx++;
-		}
-	}
-	//Mat a(Size(3,3), CV_32FC2 , Scalar::all(0));
-	for(int i = 0; i < 3; i++){
-		for(int j = 0; j < 3; j++){
-			p.at<Vec<int, 10>>(i, j)[0] = idx++;
-			p.at<Vec<int, 10>>(i, j)[1] = idx++;
-		}
-	}
-	cout << p << endl << m << endl;
-	//Mat b(3, 3, CV_32SC(10), Scalar::all(0)); 
-	add(p, m, p, Mat(), CV_32SC(10));
-	//Vec2f elem = a.at<Vec2f>(2, 2);
-	//elem[0] = 1;
-
-	cout << p << endl;
-	/*Mat tmp_m, tmp_sd;
-	double a, sd;
-	meanStdDev(m, tmp_m, tmp_sd);
-	a = tmp_m.at<double>(0,0);  
-    sd = tmp_sd.at<double>(0,0);  
-	cout << "Mean: " << tmp_m << " , StdDev: " << sd << endl;  
-	Mat b(Size(3,3), CV_8U , Scalar::all(0));
-	
-	for(int i = 0; i < 3; i++){
-		for(int j = 0; j < 3; j++){
-			b.at<uchar>(i, j) = idx;
-			idx++;
-		}
-	}
-	cout << m << endl;
-	cout << b << endl;
-	Mat c(Size(3,3), CV_64F, Scalar::all(0));
-	m.convertTo(m,CV_64F);
-	b.convertTo(b, CV_64F);
-	c =  m.mul(m)  ;
-	cout << c << endl;*/
 	
 
 	system("pause");
