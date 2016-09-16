@@ -10,7 +10,7 @@ void ImageNode::calHomography(vector<Point2f> & pts, vector<Point2f> & refPts){
 		points.push_back(pts[matchedPts[i]]);
 		refPoints.push_back(refPts[matchedPts[i]]);
 	}
-	H = findHomography(refPoints, points, CV_RANSAC); // 从参考帧->当前帧
+	H = findHomography(refPoints, points, CV_RANSAC); // 从参考帧到当前帧
 }
 
 void ImageNode::passParentHomography(Mat parentH){
@@ -24,3 +24,4 @@ Mat ImageNode::getHomography(){
 unsigned int ImageNode::getMatchedPtsSize(){
 	return matchedPts.size();
 }
+

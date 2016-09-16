@@ -52,7 +52,11 @@ public:
 	void calHomographyFlowPyramidSet(){
 
 		// 计算refImage的特征层的特征向量和特征点
-		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);
+		/*PyramidLayer* refpLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);*/
+		/*-------*/
+		int layersNum = refPyramid->getImagePyramid().size();
+		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(layersNum - 1);
+		/*-------*/
 		Mat refDescriptor = refpLayer->getImageDescriptors();  
 		vector<KeyPoint> & refKpoint = refpLayer->getKeypoints();
 
@@ -64,7 +68,7 @@ public:
 
 			if(frame == REF) continue;
 			// 1. 计算每一帧->参考帧的Homography（3*3矩阵） 金字塔
-			// 计算当前帧（最粗糙层）与参考帧的匹配特征点
+			/* // 计算当前帧（最粗糙层）与参考帧的匹配特征点
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
 			curFrame->calMatchPtsWithRef(refDescriptor, refKpoint, matcher);
@@ -76,12 +80,26 @@ public:
 			curPyramid->calFeaturePyramid();
 
 			// 将每一层的特征点分配到每个ImageNode
-			curPyramid->distributeFeaturePtsByLayer();
+			curPyramid->distributeFeaturePtsByLayer();*/
+
+			/*-------*/
+			// 计算当前帧（原图）与参考帧的匹配特征点
+			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
+			PyramidLayer* curFrame = curPyramid->getPyramidLayer(layersNum - 1);
+			curFrame->calMatchPtsWithRef(refDescriptor, refKpoint, matcher);
+
+			// 将原图这一层的特征点传给其它层
+			curPyramid->calFeaturePyramid1();
+
+			// 将特征点分配到ImageNode
+			curPyramid->distributeFeaturePtsByLayer1(curPyramid->getImagePyramid()[layersNum - 1].rows, curPyramid->getImagePyramid()[layersNum - 1].cols);
+			/*-------*/
 
 			// 计算每一帧（除参考帧）的homography金字塔
-			curPyramid->calHomographyPyramid();
+			curPyramid->calHomographyPyramid(); 
 
-			// 计算每一帧（除参考帧）的homography flow金字塔
+
+			// 2. 计算每一帧（除参考帧）的homography flow金字塔
 			curPyramid->calHomographyFlowPyramid();
 
 			cout << endl;

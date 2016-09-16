@@ -14,6 +14,11 @@ public:
 	void calHomographyFlowPyramid();		// 计算这个图像金字塔的homography flow（其实就相当于每个像素相对于参考帧的偏移量）
 	vector<Mat> getImagePyramid();
 	PyramidLayer* getPyramidLayer(int layer);
+
+
+	void calFeaturePyramid1();
+	void distributeFeaturePtsByLayer1(int rows, int cols);
 };
 
 #endif
+

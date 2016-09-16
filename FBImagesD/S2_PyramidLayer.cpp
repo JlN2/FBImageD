@@ -105,6 +105,25 @@ void PyramidLayer::distributeFeaturePts(){
 	}
 }
 
+void PyramidLayer::distributeFeaturePts1(int rows, int cols){  // rows, cols¾ùÎªÔ­Í¼³ß´ç
+	int nodeNumPerEdge = 1 << layer;
+	int nodeLength = cols / nodeNumPerEdge;
+	int nodeWidth = rows / nodeNumPerEdge;
+	//cout << "node length: " << nodeLength << " node width: " << nodeWidth << endl;
+
+	int nodeNum = nodeNumPerEdge * nodeNumPerEdge;
+	nodes.resize(nodeNum);
+
+	for (unsigned int i = 0; i < refInlierPts.size(); i++){
+		int col = (int)floor(refInlierPts[i].x / nodeLength);
+		int row = (int)floor(refInlierPts[i].y / nodeWidth);
+
+		//cout << inlierPts[i].x << "," << inlierPts[i].y << endl;
+		//cout << col << "," << row << endl;
+		nodes[row * nodeNumPerEdge + col].addMatchedPts(i);
+	}
+}
+
 void PyramidLayer::addMatchedPts(Point2f & point, Point2f & refPoint){
 	inlierPts.push_back(point);
 	refInlierPts.push_back(refPoint);
@@ -227,3 +246,5 @@ vector<Point2f> & PyramidLayer::getRefMatchPts(){
 vector<Point2f> & PyramidLayer::getCurMatchPts(){
 	return inlierPts;
 }
+
+

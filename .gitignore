@@ -2,4 +2,5 @@
 *.ipch
 *.jpg
 /Debug/
+/ipch/
 /FBImagesD/Debug/

@@ -49,10 +49,36 @@ void Pyramid::calFeaturePyramid(){
 	}
 }
 
+void Pyramid::calFeaturePyramid1(){
+	vector<Point2f> & featMatchPts = pyramid[FEATURE_LAYER].getCurMatchPts();
+	vector<Point2f> & featRefMatchPts = pyramid[FEATURE_LAYER].getRefMatchPts();
+	for (unsigned int layer = 0; layer < pyramid.size(); layer++){
+		if (layer == FEATURE_LAYER) continue;
+
+		int featureRow = 1 << FEATURE_LAYER;
+		int row = 1 << layer;
+		float ratio = 1;      // ---------------- ratio改成1
+
+		// 将点从FEATURE_LAYER（0层）scale到其他层
+		for (unsigned int i = 0; i < featMatchPts.size(); i++){
+			Point2f tempPts(featMatchPts[i].x * ratio, featMatchPts[i].y * ratio);
+			Point2f tempRefPts(featRefMatchPts[i].x * ratio, featRefMatchPts[i].y * ratio);
+			//cout << featMatchPts[i].x * ratio << "," << featMatchPts[i].y * ratio << endl;
+			pyramid[layer].addMatchedPts(tempPts, tempRefPts);
+		}
+	}
+}
+
 // 将每一层的特征点分到每一个ImageNode
 void Pyramid::distributeFeaturePtsByLayer(){
 	for (unsigned int layer = 0; layer < pyramid.size(); layer++){
 		pyramid[layer].distributeFeaturePts();
+	}
+}
+
+void Pyramid::distributeFeaturePtsByLayer1(int rows, int cols){
+	for (unsigned int layer = 0; layer < pyramid.size(); layer++){
+		pyramid[layer].distributeFeaturePts1(rows, cols);
 	}
 }
 
@@ -111,3 +137,5 @@ vector<Mat> Pyramid::getImagePyramid(){
 PyramidLayer* Pyramid::getPyramidLayer(int layer){
 	return &(pyramid[layer]);
 }
+
+

@@ -55,6 +55,10 @@ public:
 	vector<KeyPoint> & getKeypoints();
 	vector<Point2f> & getRefMatchPts();
 	vector<Point2f> & getCurMatchPts();
+
+
+	void distributeFeaturePts1(int rows, int cols);
 };
 
 #endif
+

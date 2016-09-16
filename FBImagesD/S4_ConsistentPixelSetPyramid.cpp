@@ -1,10 +1,10 @@
-
 #include "S4_ConsistentPixelSetPyramid.h"
 
 ConnectedComponent::ConnectedComponent(){}
 ConnectedComponent::ConnectedComponent(int _idx){
 	idx = _idx;
 }
+
 void ConnectedComponent::addPoint(Point p){
 	pts.push_back(p);
 }
@@ -17,6 +17,7 @@ vector<Point> & ConnectedComponent::getCCPts(){
 
 
 ConsistentPixelSetPyramid::ConsistentPixelSetPyramid(){}
+
 ConsistentPixelSetPyramid::ConsistentPixelSetPyramid(int layerNum){
 	consistentPixels.resize(layerNum);
 }
@@ -280,3 +281,4 @@ void ConsistentPixelSetPyramid::calConsistentPixelsAllLayer(vector<Mat> & refPyr
 vector<Mat> & ConsistentPixelSetPyramid::getConsistentPixelPyramid(){
 	return consistentPixels;
 }
+
