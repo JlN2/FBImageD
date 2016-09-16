@@ -18,5 +18,34 @@
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="S1_ImageNode.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="S2_PyramidLayer.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="S3_Pyramid.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="S4_ConsistentPixelSetPyramid.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="S0_ConstDef.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="S1_ImageNode.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="S2_PyramidLayer.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="S3_Pyramid.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="S4_ConsistentPixelSetPyramid.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

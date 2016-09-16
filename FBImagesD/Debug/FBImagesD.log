@@ -1,17 +1,21 @@
-﻿生成启动时间为 2016/9/16 19:17:23。
+﻿生成启动时间为 2016/9/16 21:33:59。
      1>项目“D:\4650lab\FBImagesD\FBImagesD\FBImagesD.vcxproj”在节点 2 上(build 个目标)。
      1>InitializeBuildStatus:
          正在创建“Debug\FBImagesD.unsuccessfulbuild”，因为已指定“AlwaysCreate”。
        ClCompile:
          F:\visual studio 10.0\VC\bin\CL.exe /c /ZI /nologo /W3 /WX- /Od /Oy- /D WIN32 /D _DEBUG /D _CONSOLE /D _UNICODE /D UNICODE /Gm /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Fo"Debug\\" /Fd"Debug\vc100.pdb" /Gd /TP /analyze- /errorReport:prompt main.cpp
          main.cpp
-     1>d:\4650lab\fbimagesd\fbimagesd\main.cpp(1037): warning C4244: “=”: 从“double”转换到“uchar”，可能丢失数据
-     1>d:\4650lab\fbimagesd\fbimagesd\main.cpp(1263): warning C4244: “初始化”: 从“double”转换到“float”，可能丢失数据
+     1>d:\4650lab\fbimagesd\fbimagesd\main.cpp(251): warning C4244: “=”: 从“double”转换到“uchar”，可能丢失数据
+     1>d:\4650lab\fbimagesd\fbimagesd\main.cpp(477): warning C4244: “初始化”: 从“double”转换到“float”，可能丢失数据
        ManifestResourceCompile:
          所有输出均为最新。
        Link:
          F:\visual studio 10.0\VC\bin\link.exe /ERRORREPORT:PROMPT /OUT:"D:\4650lab\FBImagesD\Debug\FBImagesD.exe" /INCREMENTAL /NOLOGO opencv_ml2410d.lib opencv_calib3d2410d.lib opencv_contrib2410d.lib opencv_core2410d.lib opencv_features2d2410d.lib opencv_flann2410d.lib opencv_gpu2410d.lib opencv_highgui2410d.lib opencv_imgproc2410d.lib opencv_legacy2410d.lib opencv_objdetect2410d.lib opencv_ts2410d.lib opencv_video2410d.lib opencv_nonfree2410d.lib opencv_ocl2410d.lib opencv_photo2410d.lib opencv_stitching2410d.lib opencv_superres2410d.lib opencv_videostab2410d.lib opencv_objdetect2410.lib opencv_ts2410.lib opencv_video2410.lib opencv_nonfree2410.lib opencv_ocl2410.lib opencv_photo2410.lib opencv_stitching2410.lib opencv_superres2410.lib opencv_videostab2410.lib opencv_calib3d2410.lib opencv_contrib2410.lib opencv_core2410.lib opencv_features2d2410.lib opencv_flann2410.lib opencv_gpu2410.lib opencv_highgui2410.lib opencv_imgproc2410.lib opencv_legacy2410.lib opencv_ml2410.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /ManifestFile:"Debug\FBImagesD.exe.intermediate.manifest" /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /DEBUG /PDB:"D:\4650lab\FBImagesD\Debug\FBImagesD.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:\4650lab\FBImagesD\Debug\FBImagesD.lib" /MACHINE:X86 Debug\FBImagesD.exe.embed.manifest.res
          Debug\main.obj
+         Debug\S1_ImageNode.obj
+         Debug\S2_PyramidLayer.obj
+         Debug\S3_Pyramid.obj
+         Debug\S4_ConsistentPixelSetPyramid.obj
        Manifest:
          C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\bin\mt.exe /nologo /verbose /out:"Debug\FBImagesD.exe.embed.manifest" /manifest Debug\FBImagesD.exe.intermediate.manifest
          所有输出均为最新。
@@ -25,4 +29,4 @@
 
 生成成功。
 
-已用时间 00:00:04.16
+已用时间 00:00:03.47

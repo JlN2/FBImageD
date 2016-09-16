@@ -75,6 +75,17 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="S1_ImageNode.cpp" />
+    <ClCompile Include="S2_PyramidLayer.cpp" />
+    <ClCompile Include="S3_Pyramid.cpp" />
+    <ClCompile Include="S4_ConsistentPixelSetPyramid.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="S0_ConstDef.h" />
+    <ClInclude Include="S1_ImageNode.h" />
+    <ClInclude Include="S2_PyramidLayer.h" />
+    <ClInclude Include="S3_Pyramid.h" />
+    <ClInclude Include="S4_ConsistentPixelSetPyramid.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
