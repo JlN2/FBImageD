@@ -53,7 +53,7 @@ void PyramidLayer::calMatchPtsWithRef(Mat & refDescriptor, vector<KeyPoint> & re
 
 	goodMatches.clear();
 	for (unsigned int i = 0; i < matches.size(); i++){
-		if (matches[i].distance < minDist + 0.38 * (maxDist - minDist)){
+		if (matches[i].distance <= minDist + GOOD_MATCH_THRE * (maxDist - minDist)){
 			goodMatches.push_back(matches[i]);
 		}
 	}

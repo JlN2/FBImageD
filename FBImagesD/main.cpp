@@ -52,11 +52,11 @@ public:
 	void calHomographyFlowPyramidSet(){
 
 		// 计算refImage的特征层的特征向量和特征点
-		/*PyramidLayer* refpLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);*/
-		/*-------*/
+		/*-------*/PyramidLayer* refpLayer = refPyramid->getPyramidLayer(FEATURE_LAYER);/*-------*/
+		/*
 		int layersNum = refPyramid->getImagePyramid().size();
 		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(layersNum - 1);
-		/*-------*/
+		*/
 		Mat refDescriptor = refpLayer->getImageDescriptors();  
 		vector<KeyPoint> & refKpoint = refpLayer->getKeypoints();
 
@@ -68,7 +68,8 @@ public:
 
 			if(frame == REF) continue;
 			// 1. 计算每一帧->参考帧的Homography（3*3矩阵） 金字塔
-			/* // 计算当前帧（最粗糙层）与参考帧的匹配特征点
+			/*-------*/
+			// 计算当前帧（最粗糙层）与参考帧的匹配特征点
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(FEATURE_LAYER);
 			curFrame->calMatchPtsWithRef(refDescriptor, refKpoint, matcher);
@@ -80,9 +81,10 @@ public:
 			curPyramid->calFeaturePyramid();
 
 			// 将每一层的特征点分配到每个ImageNode
-			curPyramid->distributeFeaturePtsByLayer();*/
-
+			curPyramid->distributeFeaturePtsByLayer();
 			/*-------*/
+
+			/*
 			// 计算当前帧（原图）与参考帧的匹配特征点
 			Pyramid* curPyramid = imagePyramidSet[frame]; // 当前图片金字塔
 			PyramidLayer* curFrame = curPyramid->getPyramidLayer(layersNum - 1);
@@ -93,7 +95,7 @@ public:
 
 			// 将特征点分配到ImageNode
 			curPyramid->distributeFeaturePtsByLayer1(curPyramid->getImagePyramid()[layersNum - 1].rows, curPyramid->getImagePyramid()[layersNum - 1].cols);
-			/*-------*/
+			*/
 
 			// 计算每一帧（除参考帧）的homography金字塔
 			curPyramid->calHomographyPyramid(); 
@@ -108,9 +110,10 @@ public:
 
 	// 第二步：选择consistent pixel 
 	void consistentPixelSelection(){
+		cout << "Consistent Pixel Selection Start. " << endl;
 		vector<Mat> integralImageSet;    // 所有Consistent Image的积分图
 		vector<Mat> consistGrayImageSet; // 所有Consistent Image的灰度图
-		const int threshold = 10;        // 阈值
+		
 
 		// 取出refImage
 		PyramidLayer* refpLayer = refPyramid->getPyramidLayer(CONSIST_LAYER);
@@ -161,10 +164,12 @@ public:
 		consistPixelPyramid = ConsistentPixelSetPyramid(refPyramid->getImagePyramid().size());
 
 		// 算Consistent Pixels(CONSIST_LAYER的)
-		consistPixelPyramid.calConsistentPixelSet(CONSIST_LAYER, integralImageSet, integralMedianImg, threshold);
+		consistPixelPyramid.calConsistentPixelSet(CONSIST_LAYER, integralImageSet, integralMedianImg, CONSIST_THRE);
 
 		// reuse the indices of computed consistent pixels by upsampling and downsampling，把refPyramid传进去是为了知道每层的尺寸
 		consistPixelPyramid.calConsistentPixelsAllLayer(refPyramid->getImagePyramid());
+
+		cout << "Consistent Pixel Selection End. " << endl;
 	}
 
 	
@@ -219,6 +224,7 @@ public:
 		
 
 		/* -----进行temporal fusion----- */
+		cout << "Temporal Fusion Start. " << endl;
 		vector<Mat> & consistentPixelPyramid = consistPixelPyramid.getConsistentPixelPyramid();
 		for(int layer = 0; layer < layersNum; layer++){
 			
@@ -336,10 +342,11 @@ public:
 			}
 			
 		}
-
+		cout << "Temporal Fusion End. " << endl;
 		imwrite(resultDir + "temporal" + imageFormat, temporalResult[layersNum - 1]);
 
 		/* -----进行multi-scale fusion----- */
+		cout << "Multi-scale Fusion Start. " << endl;
 		for(int layer = 1; layer < layersNum; layer++){
 			// 通过bilinear upscale来scale上一层的图像
 			Mat formerLayerImg;
@@ -380,7 +387,8 @@ public:
 			tempResult.convertTo(tempResult, CV_8UC3);
 			temporalResult[layer] = tempResult.clone();
 		}
-
+		cout << "Multi-scale Fusion End. " << endl;
+		imwrite(resultDir + "temporalandmultiscale1" + imageFormat, temporalResult[0]);
 		imwrite(resultDir + "temporalandmultiscale" + imageFormat, temporalResult[layersNum - 1]);
 		
 	}
