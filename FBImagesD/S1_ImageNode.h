@@ -11,6 +11,7 @@ public:
 	void addMatchedPts(int idx);
 	void calHomography(vector<Point2f> & pts, vector<Point2f> & refPts);
 	void passParentHomography(Mat parentH);
+	void updateOptimizedHomo(Mat homo);
 
 	Mat getHomography();
 	unsigned int getMatchedPtsSize();

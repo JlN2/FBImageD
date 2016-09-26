@@ -156,6 +156,66 @@ void PyramidLayer::calNodeHomography(int row, int col, Mat parentHomography){
 	}
 }
 
+// 优化这一层的homography
+void PyramidLayer::optimizeHomography(){
+	int nodeNumPerEdge = 1 << layer;
+	int totNode = nodeNumPerEdge * nodeNumPerEdge;
+	int dr[] = {-1, 1, 0, 0};   // 上，下，左，右
+	int dc[] = {0, 0, -1, 1};
+
+	Mat R(3, 3 * totNode, CV_64F, Scalar::all(0));              // 这个矩阵装所有的原来的homography
+	Mat A(3 * totNode, 3 * totNode, CV_64F, Scalar::all(0));    // 这个矩阵是系数矩阵，来代表H的运算
+	Mat H(3, 3 * totNode, CV_64F, Scalar::all(0));              // 未知待求的矩阵，优化后的homography
+	
+	for(int r = 0; r < nodeNumPerEdge; r++)
+		for(int c = 0; c < nodeNumPerEdge; c++){
+			Mat homo = getNodesHomography(r, c);
+			
+			// 填R矩阵
+			int curIdx = r * nodeNumPerEdge + c;        
+			for(int i = 0; i < 3; i++)
+				for(int j = 0; j < 3; j++){
+					R.at<double>(i, j + curIdx * 3) = homo.at<double>(i, j); 
+				}
+			
+			// 填A矩阵
+			int cnt = 0;                                // 算homo有几个邻接的homo
+			for(int i = 0; i < 4; i++){                    
+				int neighborR = r + dr[i];
+				int neighborC = c + dc[i];
+				if(neighborR < 0 || neighborR >= nodeNumPerEdge ||  neighborC < 0 || neighborC >= nodeNumPerEdge)
+					continue;
+
+				cnt++;
+
+				int neighborIdx = neighborR * nodeNumPerEdge + neighborC;
+				
+				int startR = neighborIdx * 3;
+				int startC = curIdx * 3;
+				for(int k = 0; k < 3; k++) A.at<double>(startR + k, startC + k) = -1;
+			}
+
+			for(int k = 0; k < 3; k++) A.at<double>(curIdx * 3 + k, curIdx * 3 + k) = cnt;
+
+		}
+	
+	Mat P = Mat::eye(3 * totNode, 3 * totNode, CV_64F);
+	P = P + LAMBDA * 2 * A;
+	H = R * P.inv();          // H的尺寸为3*(3*totNode)
+
+	// 将算出的H填回到各个node的homography矩阵中
+	for(int r = 0; r < nodeNumPerEdge; r++)
+		for(int c = 0; c < nodeNumPerEdge; c++){
+			Mat tempHomo(3, 3, CV_64F, Scalar::all(0));
+			int curIdx = r * nodeNumPerEdge + c;
+			for(int i = 0; i < 3; i++)
+				for(int j = 0; j < 3; j++){
+					tempHomo.at<double>(i, j) = H.at<double>(i, j + curIdx * 3); 
+				}
+			nodes[r * nodeNumPerEdge + c].updateOptimizedHomo(tempHomo);
+		}
+}
+
 //计算这一层的Homography Flow
 void PyramidLayer::calHomographyFlow(){
 	int edgeLen = 1 << layer;

@@ -100,6 +100,10 @@ void Pyramid::calHomographyPyramid(){
 				//cout << row << "," << col << endl << pyramid[layer].getNodesHomography(row, col) << endl;
 			}
 		}
+
+		//ÓÅ»¯homography
+		if(layer == 0) continue;
+		pyramid[layer].optimizeHomography();
 		//cout << endl;
 	}
 }

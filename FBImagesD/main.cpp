@@ -104,6 +104,7 @@ public:
 			// 2. 计算每一帧（除参考帧）的homography flow金字塔
 			curPyramid->calHomographyFlowPyramid();
 
+
 			cout << endl;
 		}
 	}
@@ -137,6 +138,9 @@ public:
 			
 			// 转灰度图
 			Mat consistImg = curFrame->getConsistImage();
+			char index[10];
+			sprintf_s(index, "%d", frame);
+			imwrite(resultDir + "Consistent Img " + (string)index + imageFormat, consistImg); 
 			cvtColor(consistImg, consistGrayImageSet[frame], CV_RGB2GRAY);
 
 			// 求所有consistent 灰度图的积分图(原图行列各加1，第一行第一列均为0）
@@ -388,7 +392,7 @@ public:
 			temporalResult[layer] = tempResult.clone();
 		}
 		cout << "Multi-scale Fusion End. " << endl;
-		imwrite(resultDir + "temporalandmultiscale1" + imageFormat, temporalResult[0]);
+		//imwrite(resultDir + "temporalandmultiscale1" + imageFormat, temporalResult[0]);
 		imwrite(resultDir + "temporalandmultiscale" + imageFormat, temporalResult[layersNum - 1]);
 		
 	}
@@ -529,7 +533,6 @@ int main(){
 	FBID.consistentPixelSelection();
 	FBID.pixelsFusion();
 	FBID.showImages(FBID.temporalResult);
-	
 
 	system("pause");
 

@@ -14,6 +14,10 @@ void ImageNode::calHomography(vector<Point2f> & pts, vector<Point2f> & refPts){
 	// 从参考帧到当前帧
 }
 
+void ImageNode::updateOptimizedHomo(Mat homo){
+	H = homo.clone();
+}
+
 void ImageNode::passParentHomography(Mat parentH){
 	H = parentH;
 }

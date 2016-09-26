@@ -19,14 +19,15 @@
 using namespace std;
 using namespace cv;
 
-const string fileDir  = "SrcData\\Data\\Building_1\\";
+const string fileDir  = "SrcData\\Data\\Bookshelf_2\\";
 const string resultDir = "Result\\";
 const string imageFormat = ".jpg";
 const int FRAME_NUM = 10;
 const int REF = FRAME_NUM / 2;
-const int FEATURE_LAYER = 0;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
+const int FEATURE_LAYER = 1;   // 应该从哪一层开始算特征向量：starting from a global homography at the coarsest level
 const int CONSIST_LAYER = 0;
 const double GOOD_MATCH_THRE = 0.38;
-const int CONSIST_THRE = 10;        // 阈值
+const int CONSIST_THRE = 15;        // 阈值
+const double LAMBDA = 0.1;
 
 #endif

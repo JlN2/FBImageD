@@ -43,6 +43,8 @@ public:
 
 	void calNodeHomography(int row, int col, Mat parentHomography);		// 计算给定节点的Homography
 
+	void optimizeHomography();                                          // 优化这一层的homography
+
 	void calHomographyFlow();											// 计算这一层的Homography Flow
 
 	void calHomographyFlowByScale(Mat & finestHomoFlow, int scale);		// 缩放homography flow
